@@ -449,7 +449,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="svc_bridge dataset")
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
@@ -464,6 +464,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         result = qc(args.root)
     elif args.action == "slice":
         result = slice_tree(args.root, args.min_seconds, args.max_seconds, args.min_interval_ms)
+    elif args.action == "separate":
+        from .dataset_separate import separate_tree
+
+        result = separate_tree(args.root)
     elif args.action == "convert":
         from .dataset_convert import convert_tree
 

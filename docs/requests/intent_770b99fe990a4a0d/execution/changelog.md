@@ -1422,3 +1422,35 @@ cargo test 120 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
 
 转码依赖 **ffmpeg**。当前安装包没有内置 ffmpeg（doctor 的 ffmpeg 检查会 fail 并提示修复）。
 下一步应把 ffmpeg 打进 `resources/`（约 +80MB），否则干净机器上导入 mp3 会失败。
+
+## 2026-11-17 · 内置人声分离（Demucs），导入后自动去伴奏/背景音
+
+### 背景
+
+so-vits-svc 本身**不含**音频分离，官方做法是先用 UVR5 分离人声再训练。之前软件没有这一步。
+
+### 实现
+
+- 运行时加装 **demucs 4.1.0**（torch 2.8 cu128 保持不变）；
+- 预置 `htdemucs` 权重到 `<运行时>/models/torch/hub/checkpoints/955717e8-8726e21a.th`（80MB），
+  并设 `TORCH_HOME` + `HF_HUB_OFFLINE=1`，**离线加载 1.7 秒**（不走 huggingface，避免 5 分钟重试）；
+- worker 新增 `dataset separate`：对每个说话人目录里的音频跑 Demucs，只保留 `vocals`，
+  原文件移到 `dataset_raw/_original/<说话人>/` 保留；
+- 管线顺序改为 **分离 → 转码 44.1k 单声道 → 切片 5–15s → 响度统一 → 扫描/QC**；
+- 数据集页新增开关「自动分离人声（去伴奏 / 背景音，Demucs；约 1 分钟音频 10 秒）」，默认开启；
+- `build-runtime.ps1` 增加 demucs 依赖与权重下载步骤。
+
+### 实测（32 秒立体声 mp3，RTX 5060 Ti）
+
+| 步骤 | 结果 |
+| --- | --- |
+| 分离 | **5.4 秒**，输出 `song.vocals.wav`（44.1k），device=cuda |
+| 转码 | 1 个文件统一为 44.1k 单声道 |
+| 切片 | 31.95s → 5 段 |
+| QC | 5 个片段 / 29.81s / **阻断项 0** |
+
+### 风险
+
+- CPU 分离慢约 10–20 倍（无 GPU 时仍可用，但要提示耗时）；
+- `demucs` 依赖 `torchaudio`/`safetensors` 等，已随运行时安装；
+- ffmpeg 仍未内置（转码需要），干净机器需另装或由安装包提供。

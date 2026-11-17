@@ -29,6 +29,7 @@ export function DatasetPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
+  const [separateVocals, setSeparateVocals] = useState(true);
 
   async function handleImport(paths: string[]) {
     if (!project) return;
@@ -42,12 +43,13 @@ export function DatasetPage() {
       if (result.rejected > 0) parts.push(`忽略 ${result.rejected} 个非音频`);
       setImportNote(parts.join("，"));
       // 导入后自动：转码 → 切片 → 统一响度 → 扫描 → QC
-      const prepared = await backend.datasetPrepare(project.id);
+      const prepared = await backend.datasetPrepare(project.id, separateVocals);
+      const separatedCount = Array.isArray(prepared.separated) ? prepared.separated.length : 0;
       const convertedCount = Array.isArray(prepared.converted) ? prepared.converted.length : 0;
       const slicedCount = Array.isArray(prepared.sliced) ? prepared.sliced.length : 0;
-      if (convertedCount > 0 || slicedCount > 0) {
+      if (separatedCount > 0 || convertedCount > 0 || slicedCount > 0) {
         setImportNote(
-          `${parts.join("，")}；已转码 ${convertedCount} 个、切片 ${slicedCount} 个为 44.1k 单声道 wav`,
+          `${parts.join("，")}；已分离人声 ${separatedCount} 个、转码 ${convertedCount} 个、切片 ${slicedCount} 个`,
         );
       }
       const scanned = await backend.datasetScan(project.id);
@@ -112,6 +114,15 @@ export function DatasetPage() {
         busy={busy === "import"}
         onImport={(paths) => void handleImport(paths)}
       />
+
+      <label className="mt-2 flex items-center gap-2 text-[12px] text-muted">
+        <input
+          type="checkbox"
+          checked={separateVocals}
+          onChange={(e) => setSeparateVocals(e.target.checked)}
+        />
+        自动分离人声（去伴奏 / 背景音，Demucs；约 1 分钟音频 10 秒）
+      </label>
 
       {importNote && (
         <p className="mt-2 text-[12px] text-ok">

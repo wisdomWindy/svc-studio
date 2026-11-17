@@ -420,11 +420,30 @@ pub async fn dataset_import(
 pub async fn dataset_prepare(
     state: State<'_, AppPaths>,
     project_id: String,
+    separate: Option<bool>,
 ) -> AppResult<serde_json::Value> {
     let python = crate::commands::settings::python_for_state(&state)?;
     let root = project_root(&state, &project_id)?;
     let dir = dataset_raw(&root);
     let root_arg = dir.to_string_lossy().to_string();
+
+    // 先分离人声（需要 Demucs），再做格式/切片/响度处理
+    let mut sep_report = serde_json::Value::Null;
+    if separate.unwrap_or(true) {
+        sep_report = run_json(&python, &["dataset", "separate", "--root", &root_arg]).await?;
+        let sep_failed = sep_report
+            .get("failed")
+            .and_then(|v| v.as_array())
+            .map(|v| v.len())
+            .unwrap_or(0);
+        if sep_failed > 0 {
+            return Err(Box::new(AppError::new(
+                "SVC-3001",
+                "人声分离失败",
+                format!("{sep_failed} 个文件分离失败"),
+            )));
+        }
+    }
 
     let converted = run_json(&python, &["dataset", "convert", "--root", &root_arg]).await?;
     let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
@@ -450,6 +469,8 @@ pub async fn dataset_prepare(
     }
 
     Ok(serde_json::json!({
+        "separated": sep_report.get("separated").cloned().unwrap_or(serde_json::Value::Null),
+        "separatedSeconds": sep_report.get("seconds").cloned().unwrap_or(serde_json::Value::Null),
         "converted": converted.get("converted").cloned().unwrap_or(serde_json::Value::Null),
         "skipped": converted.get("skipped").cloned().unwrap_or(serde_json::Value::Null),
         "sliced": sliced.get("sliced").cloned().unwrap_or(serde_json::Value::Null),

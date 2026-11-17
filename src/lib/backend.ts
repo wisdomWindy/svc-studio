@@ -111,10 +111,10 @@ export const backend = {
       "dataset_import",
       { projectId, paths },
     ),
-  datasetPrepare: (projectId: string) =>
-    call<{ converted: unknown[]; skipped: unknown[]; sliced: unknown[]; resampled: unknown[] }>(
+  datasetPrepare: (projectId: string, separate = true) =>
+    call<{ separated: unknown[]; separatedSeconds: number | null; converted: unknown[]; skipped: unknown[]; sliced: unknown[]; resampled: unknown[] }>(
       "dataset_prepare",
-      { projectId },
+      { projectId, separate },
     ),
   datasetScan: (projectId: string) =>
     call<Record<string, unknown>>("dataset_scan", { projectId }),

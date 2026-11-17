@@ -50,7 +50,7 @@ if ($LASTEXITCODE -ne 0) { throw "pip 安装失败" }
 Write-Host "==> 安装训练/推理依赖（先装，避免它们把 torch 降级）"
 & $python -m pip install --no-warn-script-location -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
   "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
-  "fairseq-fixed==0.12.3.1" "omegaconf" "hydra-core" "tensorboardX"
+  "fairseq-fixed==0.12.3.1" "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0"
 if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
 
 Write-Host "==> 准备 cu128 轮子（缓存缺失时从镜像下载）"
@@ -99,6 +99,15 @@ if _up and os.path.isdir(_up) and _up not in sys.path:
     sys.path.insert(0, _up)
 "@
 [System.IO.File]::WriteAllText((Join-Path $out "Lib\site-packages\sitecustomize.py"), $sitecustomize, (New-Object System.Text.UTF8Encoding($false)))
+
+Write-Host "==> 预置 Demucs 人声分离权重（80MB，离线可用）"
+$demucsDir = Join-Path $out "models\torch\hub\checkpoints"
+New-Item -ItemType Directory -Force -Path $demucsDir | Out-Null
+$demucsWeight = Join-Path $demucsDir "955717e8-8726e21a.th"
+if (-not (Test-Path $demucsWeight)) {
+  & curl.exe -L --fail --retry 3 --retry-delay 2 -C - -o $demucsWeight "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th"
+  if ($LASTEXITCODE -ne 0) { throw "Demucs 权重下载失败" }
+}
 
 Write-Host "==> 复制 worker"
 $dstWorker = Join-Path $out "worker"
