@@ -175,6 +175,29 @@ fn make_log_writer() -> LogFile {
     LogFile(std::sync::Arc::new(std::sync::Mutex::new(file)))
 }
 
+/// 崩溃也要留下证据：panic 写进 app.log（窗口子系统没有 stderr）。
+fn install_panic_hook() {
+    let dir = crate::error::data_root()
+        .map(|root| root.join("logs"))
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("app.log");
+    std::panic::set_hook(Box::new(move |info| {
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(file, "PANIC: {info}");
+            if let Some(location) = info.location() {
+                let _ = writeln!(file, "  at {}:{}", location.file(), location.line());
+            }
+            let _ = file.flush();
+        }
+    }));
+}
+
 pub fn run() {
     let log_writer = make_log_writer();
     tracing_subscriber::fmt()
@@ -186,6 +209,8 @@ pub fn run() {
         .with_writer(log_writer)
         .compact()
         .init();
+
+    install_panic_hook();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

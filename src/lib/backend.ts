@@ -112,7 +112,7 @@ export const backend = {
       { projectId, paths },
     ),
   datasetPrepare: (projectId: string, separate = true) =>
-    call<{ separated: unknown[]; separatedSeconds: number | null; converted: unknown[]; skipped: unknown[]; sliced: unknown[]; resampled: unknown[] }>(
+    call<{ separated: unknown[]; separatedSeconds: number | null; converted: unknown[]; skipped: unknown[]; sliced: unknown[]; resampled: unknown[]; keptCount: number | null; removedCount: number }>(
       "dataset_prepare",
       { projectId, separate },
     ),

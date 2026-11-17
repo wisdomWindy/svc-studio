@@ -47,9 +47,9 @@ export function DatasetPage() {
       const separatedCount = Array.isArray(prepared.separated) ? prepared.separated.length : 0;
       const convertedCount = Array.isArray(prepared.converted) ? prepared.converted.length : 0;
       const slicedCount = Array.isArray(prepared.sliced) ? prepared.sliced.length : 0;
-      if (separatedCount > 0 || convertedCount > 0 || slicedCount > 0) {
+      if (separatedCount > 0 || convertedCount > 0 || slicedCount > 0 || prepared.keptCount) {
         setImportNote(
-          `${parts.join("，")}；已分离人声 ${separatedCount} 个、转码 ${convertedCount} 个、切片 ${slicedCount} 个`,
+          `${parts.join("，")}；已分离 ${separatedCount} 个、切片 ${slicedCount} 个，最终保留 ${prepared.keptCount ?? 0} 段干声（原始文件与中间产物已清理）`,
         );
       }
       const scanned = await backend.datasetScan(project.id);

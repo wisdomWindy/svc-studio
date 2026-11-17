@@ -448,6 +448,8 @@ pub async fn dataset_prepare(
     let converted = run_json(&python, &["dataset", "convert", "--root", &root_arg]).await?;
     let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
     let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
+    // 收尾：项目里只留最终干声片段，原始文件与中间产物全部删除
+    let finalized = run_json(&python, &["dataset", "finalize", "--root", &root_arg]).await?;
 
     let failed = converted
         .get("failed")
@@ -475,5 +477,11 @@ pub async fn dataset_prepare(
         "skipped": converted.get("skipped").cloned().unwrap_or(serde_json::Value::Null),
         "sliced": sliced.get("sliced").cloned().unwrap_or(serde_json::Value::Null),
         "resampled": resampled.get("changed").cloned().unwrap_or(serde_json::Value::Null),
+        "keptCount": finalized.get("keptCount").cloned().unwrap_or(serde_json::Value::Null),
+        "removedCount": finalized
+            .get("removed")
+            .and_then(|v| v.as_array())
+            .map(|v| v.len())
+            .unwrap_or(0),
     }))
 }
