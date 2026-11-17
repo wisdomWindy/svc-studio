@@ -108,9 +108,13 @@ pub fn data_root() -> AppResult<PathBuf> {
     })?;
     let env_value = std::env::var(crate::infra::dataroot::DATA_ROOT_ENV).ok();
     let pointer = crate::infra::dataroot::read_pointer();
-    Ok(crate::infra::dataroot::pick_data_root(
+    let install_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf));
+    Ok(crate::infra::dataroot::pick_data_root_with(
         env_value.as_deref(),
         pointer.as_deref(),
         &PathBuf::from(home),
+        install_dir.as_deref(),
     ))
 }

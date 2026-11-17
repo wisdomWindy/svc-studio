@@ -7,7 +7,18 @@ use std::path::{Path, PathBuf};
 
 pub const DATA_ROOT_ENV: &str = "SVCSTUDIO_DATA_ROOT";
 
+#[cfg(test)]
 pub fn pick_data_root(env_value: Option<&str>, pointer: Option<&str>, home: &Path) -> PathBuf {
+    pick_data_root_with(env_value, pointer, home, None)
+}
+
+/// 带安装目录的版本：安装目录可写时，数据就放在软件目录里（不拆成两处）。
+pub fn pick_data_root_with(
+    env_value: Option<&str>,
+    pointer: Option<&str>,
+    home: &Path,
+    install_dir: Option<&Path>,
+) -> PathBuf {
     if let Some(raw) = env_value {
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
@@ -18,6 +29,11 @@ pub fn pick_data_root(env_value: Option<&str>, pointer: Option<&str>, home: &Pat
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
             return PathBuf::from(trimmed);
+        }
+    }
+    if let Some(dir) = install_dir {
+        if crate::core::projects_root::is_writable(dir) {
+            return dir.to_path_buf();
         }
     }
     home.join("SVCStudio")

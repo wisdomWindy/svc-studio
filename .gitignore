@@ -26,6 +26,7 @@ perf/out/
 *.zip
 tmp/
 .verify/
+.devdata/
 
 # 模型权重与数据集（绝不入库）
 pretrain/

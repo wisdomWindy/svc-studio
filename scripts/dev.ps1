@@ -10,4 +10,9 @@ if (-not (Test-Path "node_modules")) {
   & pnpm.cmd install
 }
 
+# 开发版把数据放仓库内（gitignore），避免跟着 target/debug 到处跑
+$env:SVCSTUDIO_DATA_ROOT = Join-Path $root ".devdata"
+New-Item -ItemType Directory -Force -Path $env:SVCSTUDIO_DATA_ROOT | Out-Null
+Write-Host "数据目录：$env:SVCSTUDIO_DATA_ROOT" -ForegroundColor DarkGray
+
 & pnpm.cmd tauri dev

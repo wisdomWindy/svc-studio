@@ -1348,3 +1348,42 @@ cargo test 116 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 120 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 代码与数据合并到同一个软件目录
+
+### 规则变更
+
+数据根默认值从 `%USERPROFILE%\SVCStudio` 改为**软件安装目录（可写时）**，即：
+
+```
+<软件目录>\
+  svc-studio.exe  uninstall.exe
+  runtime\      Python 3.13 + torch cu128
+  pretrain\     ContentVec / rmvpe / nsf_hifigan
+  projects\     项目（数据集、配置、模型）
+  logs\         app.log
+  studio.db
+```
+
+解析顺序：环境变量 `SVCSTUDIO_DATA_ROOT` → 指针文件 → **安装目录（写探测通过）** → `%USERPROFILE%\SVCStudio` 兜底。
+
+### 配套改动
+
+- `pick_data_root_with()` 增加 install_dir 参数，用真实写文件探测可写性；
+- `scripts/dev.ps1` 把开发数据固定到仓库内 `.devdata`（gitignore），避免跟随 `target/debug`；
+- 清理：`D:\program\svcstudio\tmp`（8.6GB 临时数据）与 `runtime-0.1.0.zip`（3.5GB 冗余包）已删除；指针文件已移除。
+
+### 实测
+
+| 项 | 结果 |
+| --- | --- |
+| 安装位置 | `D:\program\svcstudio`（与数据同目录） |
+| 应用启动日志 | `db=D:\program\svcstudio\studio.db` |
+| 运行时 | 安装目录下 `runtime\python.exe` 被识别（页脚 3.13.7） |
+| 权重 | 安装目录下 `pretrain\` 被识别（自检 vocoder 通过） |
+| 新建项目 | `root_path=D:\program\svcstudio\projects\qingqingzi`，目录已创建 |
+
+### 注意
+
+- 若装到 `C:\Program Files` 等不可写位置，会自动退回 `%USERPROFILE%\SVCStudio`，设置页「数据目录」会显示实际位置；
+- 卸载仍然保留 `projects`（用户数据不删）。
