@@ -1,4 +1,6 @@
 use serde::Serialize;
+use std::path::PathBuf;
+
 use tauri::State;
 
 use crate::core::job_state::JobStatus;
@@ -98,4 +100,78 @@ pub async fn cancel_job(state: State<'_, AppPaths>, id: String) -> AppResult<Job
         .db
         .with(|c| jobs::get(c, &id))?
         .ok_or_else(|| Box::new(AppError::new("SVC-7003", "取消后读不回任务", id)))
+}
+
+/// 打开某次推理的产物：只有一个音频就用默认播放器打开，多个则打开所在文件夹。
+#[tauri::command]
+pub fn job_open_output(state: State<'_, AppPaths>, id: String) -> AppResult<String> {
+    let job = state
+        .db
+        .with(|c| jobs::get(c, &id))?
+        .ok_or_else(|| Box::new(AppError::new("SVC-7002", "任务不存在", id.clone())))?;
+
+    let project_id = job
+        .project_id
+        .ok_or_else(|| Box::new(AppError::new("SVC-7002", "任务没有关联项目", id.clone())))?;
+    let project = state
+        .db
+        .with(|c| crate::core::repo::projects::get(c, &project_id))?
+        .ok_or_else(|| Box::new(AppError::new("SVC-7004", "项目不存在", project_id.clone())))?;
+
+    let outputs_root = PathBuf::from(&project.root_path).join("outputs");
+    let batch = std::fs::read_dir(&outputs_root)
+        .map_err(|e| {
+            Box::new(AppError::new(
+                "SVC-6001",
+                "找不到推理产物目录",
+                e.to_string(),
+            ))
+        })?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .max_by_key(|p| {
+            std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        })
+        .ok_or_else(|| Box::new(AppError::new("SVC-6001", "还没有任何推理批次", "")))?;
+
+    let out_dir = batch.join("outputs");
+    let files: Vec<PathBuf> = std::fs::read_dir(&out_dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // 优先用默认播放器打开第一个音频；没有音频才退回打开文件夹。
+    const AUDIO_EXT: &[&str] = &["wav", "flac", "mp3", "m4a", "ogg", "opus", "aac"];
+    let audio = files.iter().find(|p| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| AUDIO_EXT.contains(&e.to_ascii_lowercase().as_str()))
+            .unwrap_or(false)
+    });
+
+    let target = audio.cloned().unwrap_or_else(|| out_dir.clone());
+    let mut cmd = if audio.is_some() {
+        // rundll32 走文件关联，能正确处理中文与括号路径
+        let mut cmd = std::process::Command::new("rundll32.exe");
+        crate::core::proc::hide_console(&mut cmd);
+        cmd.arg("url.dll,FileProtocolHandler");
+        cmd.arg(&target);
+        cmd
+    } else {
+        let mut cmd = std::process::Command::new("explorer.exe");
+        crate::core::proc::hide_console(&mut cmd);
+        cmd.arg(&target);
+        cmd
+    };
+    cmd.spawn()
+        .map_err(|e| Box::new(AppError::new("SVC-6001", "无法打开产物", e.to_string())))?;
+    Ok(target.to_string_lossy().to_string())
 }

@@ -128,6 +128,21 @@ export function TasksPage() {
                   <td className="px-3 py-1.5 tabular">{percent(job.progress)}</td>
                   <td className="px-3 py-1.5 tabular text-muted">{formatClock(job.startedAt)}</td>
                   <td className="px-3 py-1.5 text-right">
+                    {job.status === "succeeded" && job.type === "inference" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void backend
+                            .jobOpenOutput(job.id)
+                            .then(() => setError(null))
+                            .catch((err) => setError(toErrorText(err)));
+                        }}
+                      >
+                        查看
+                      </Button>
+                    )}
                     {(job.status === "running" || job.status === "queued") && (
                       <Button
                         size="sm"

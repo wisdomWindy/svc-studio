@@ -1893,3 +1893,27 @@ Of the allocated memory 17.33 GiB is allocated by PyTorch
 ### 质量门
 
 cargo test 121 / pytest **110** / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 任务页「查看」按钮：直接播放推理产物
+
+### 改动
+
+- `job_open_output(job_id)`：按任务所属项目找 `outputs/` 下最新批次，
+  取其中第一个音频文件，用 **文件关联**（`rundll32 url.dll,FileProtocolHandler`）调默认播放器；
+  没有音频时退回打开文件夹；
+- 任务页在 **已完成的 inference** 行显示「查看」按钮（失败/取消仍显示「重试」）。
+
+### 实测
+
+点「查看」后系统播放器启动：
+
+```
+ApplicationFrameHost   媒体播放器
+Microsoft.Media.Player （进程在跑）
+```
+
+播放的是 `projects\qingqingzi\outputs\20261117-2055_batch\outputs\...flac`。
+
+### 质量门
+
+cargo test 121 / pytest 110 / vitest 38 / clippy 0 / `check.ps1` PASS。

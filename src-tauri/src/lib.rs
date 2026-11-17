@@ -241,6 +241,7 @@ pub fn run() {
             commands::jobs::job_events,
             commands::jobs::jobs_summary,
             commands::jobs::cancel_job,
+            commands::jobs::job_open_output,
             commands::job_retry::retry_job,
             commands::models::list_models,
             commands::models::get_model,
