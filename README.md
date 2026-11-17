@@ -65,7 +65,7 @@ worker/          Python 执行层（svc_bridge）
 vendor/          so-vits-svc 4.1-Stable 源码（AGPL-3.0，运行时依赖）
 scripts/         构建、质量门、打包、校验
 perf/            性能基线（入库，回归即阻断）
-docs/requests/   PRD / spec / 架构 / plan / 验收台账与证据
+（需求 / 验收 / 证据文档不入库，仅在开发机本地保留）
 ```
 
 ## 合规
@@ -76,6 +76,6 @@ docs/requests/   PRD / spec / 架构 / plan / 验收台账与证据
 
 ## 状态
 
-- 验收台账：`docs/requests/intent_770b99fe990a4a0d/verification/verification.md`（32 ✅ / 16 🟡 / 1 ⛔）
+- 验收台账：只在开发机本地保留（`docs/` 已列入 .gitignore）
 - 质量门：`cargo test 109 / pytest 100 / vitest 35 / clippy 0`
 - 已知限制：CPU 训练不支持；单安装包无法内含 7.6GB 运行时（NSIS 32 位 2GB 上限），故运行时单独分发。
