@@ -1,4 +1,0 @@
-﻿SVC Studio 0.1.0 源码获取方式
-1. 随安装包附带的 source-0.1.0.zip 即为完整对应源码。
-2. 亦可从项目仓库获取同版本 tag 的源码与构建脚本（build.ps1 / scripts/release.ps1）。
-3. 本要约自发布日起 3 年内有效。
