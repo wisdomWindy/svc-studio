@@ -1,0 +1,10 @@
+{
+  "artifact": "SVC Studio_0.1.0_x64-setup.exe",
+  "bytes": 221823000,
+  "bytesHuman": "211.55 MB",
+  "sha256": "63d8a80e573dc6b5073ce3b1f56baafb19aab87be1fbcd593c1f0e8e1995e5ca",
+  "builtAt": "2026-11-16T13:52:00Z",
+  "includes": ["app", "WebView2 offline installer", "resources/.keep (placeholder)"],
+  "excludes": ["Python runtime", "torch/fairseq", "model weights"],
+  "note": "不含内置运行时，不能作为 H1 干净机验证证据；仅证明 NSIS + WebView2 离线打包链路可用。"
+}

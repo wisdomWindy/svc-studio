@@ -1,0 +1,33 @@
+# 运行时锁定清单（CPython 3.8.9 / Windows x64）
+# 说明：上游 so-vits-svc 4.1 未锁定 torch；这里固定一套"官方基线 + CUDA 11.7"组合，
+# 目的是让"内置运行时"可复现。换版本必须重跑 doctor 与冒烟（ADR-001 附条件）。
+#
+# 安装时使用：python -m pip install -r requirements.lock.txt \
+#   --extra-index-url https://download.pytorch.org/whl/cu117
+
+torch==1.13.1+cu117
+torchaudio==0.13.1+cu117
+numpy==1.23.5
+scipy==1.10.0
+SoundFile==0.12.1
+librosa==0.9.1
+faiss-cpu==1.7.4
+fairseq==0.12.2
+transformers==4.30.2
+pyworld==0.3.4
+praat-parselmouth==0.4.3
+torchcrepe==0.0.23
+tensorboard==2.13.0
+tensorboardX==2.6.2.2
+pynvml==11.5.0
+PyYAML==6.0.1
+tqdm==4.66.1
+loguru==0.7.2
+einops==0.7.0
+local_attention==1.0.2
+onnx==1.14.1
+onnxsim==0.4.33
+onnxoptimizer==0.3.13
+Flask==2.2.5
+Flask-Cors==4.0.0
+gradio==3.50.2

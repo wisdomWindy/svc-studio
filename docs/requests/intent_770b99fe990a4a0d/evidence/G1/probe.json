@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-11-16T14:18:08.420Z",
+  "note": "主线程延迟（setTimeout 偏差），IPC 施压下采样；不等同于训练满载",
+  "result": {
+    "durationMs": 5021,
+    "max": 4,
+    "over200ms": 0,
+    "p50": 2,
+    "p95": 3.2,
+    "samples": 227
+  },
+  "schema": "svcstudio.probe/1"
+}

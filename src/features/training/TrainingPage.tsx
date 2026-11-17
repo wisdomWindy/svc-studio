@@ -1,0 +1,230 @@
+import { useEffect, useState } from "react";
+import { PageHeader } from "@/components/PageHeader";
+import { ErrorNotice } from "@/components/ErrorNotice";
+import { Button } from "@/components/ui/Button";
+import { backend, type CheckpointInfo, type Recommend } from "@/lib/backend";
+import { useActiveProject } from "@/lib/store";
+import { formatBytes, statusLabel } from "@/lib/format";
+import { parseLossSeries, sparklinePath } from "@/lib/curve";
+import type { JobEvent } from "@/types";
+
+export function TrainingPage() {
+  const project = useActiveProject();
+  const [recommend, setRecommend] = useState<Recommend | null>(null);
+  const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [gate, setGate] = useState<{ trainable: boolean; blocking: string[] } | null>(null);
+  const [events, setEvents] = useState<JobEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [gpuBusy, setGpuBusy] = useState(false);
+
+  useEffect(() => {
+    const tick = () => void backend.gpuBusy().then(setGpuBusy).catch(() => setGpuBusy(false));
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    void backend
+      .doctorCached()
+      .then(setGate)
+      .catch(() => setGate(null));
+  }, []);
+
+  useEffect(() => {
+    void backend
+      .trainRecommend()
+      .then(setRecommend)
+      .catch(() => setRecommend(null));
+  }, []);
+
+  useEffect(() => {
+    if (!jobId) return;
+    const id = setInterval(() => {
+      void backend
+        .jobEvents(jobId, 0, 2000)
+        .then((page) => setEvents(page.events))
+        .catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!project) return;
+    void backend
+      .trainCheckpoints(project.id)
+      .then(setCheckpoints)
+      .catch(() => setCheckpoints([]));
+  }, [project, jobId]);
+
+  async function start(smoke: boolean, resume = false) {
+    if (!project) return;
+    setBusy(smoke ? "smoke" : "train");
+    setError(null);
+    setMessage(null);
+    try {
+      const id = await backend.trainStart(project.id, smoke, resume);
+      setJobId(id);
+      setMessage(`${smoke ? "冒烟" : "训练"}已启动：${id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function stop() {
+    if (!jobId) return;
+    try {
+      await backend.trainStop(jobId);
+      setMessage("已请求停止，进度会保留到最近一次 checkpoint");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function register(checkpoint: CheckpointInfo) {
+    if (!project) return;
+    try {
+      const result = await backend.registerModel(project.id, checkpoint.path);
+      setMessage(`已登记 ${result.model.name}${result.becameDefault ? "（已设为默认）" : ""}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (!project) {
+    return (
+      <>
+        <PageHeader title="训练" description="先创建项目并完成预处理。" />
+        <div className="rounded-lg border border-dashed border-line p-10 text-center text-[12px] text-muted">
+          还没有项目
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="训练"
+        description="先跑 100 步冒烟（可落盘、可续训），再进长训。停止就是停止，续训从最近 checkpoint 继续。"
+        actions={
+          <div className="flex gap-2">
+            <Button disabled={!!busy || gate?.trainable === false} onClick={() => void start(true)}>
+              {busy === "smoke" ? "启动中…" : "100 步冒烟"}
+            </Button>
+            <Button variant="primary" disabled={!!busy} onClick={() => void start(false, checkpoints.length > 0)}>
+              {busy === "train"
+                ? "启动中…"
+                : checkpoints.length > 0
+                  ? "继续训练"
+                  : "开始训练"}
+            </Button>
+            {jobId && <Button variant="ghost" onClick={() => void stop()}>停止</Button>}
+          </div>
+        }
+        badge={
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                gpuBusy ? "border-warn/50 text-warn" : "border-line text-muted"
+              }`}
+            >
+              GPU {gpuBusy ? "忙" : "闲"}
+            </span>
+            <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">{project.name}</span>
+          </div>
+        }
+      />
+
+      {gate?.trainable === false && (
+        <div className="mb-2 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-[12px] text-warn">
+          环境自检未通过，训练与预处理入口已禁用。阻断项：{gate.blocking.join("、") || "未知"}；请在设置页修复后重新自检。
+        </div>
+      )}
+      {message && <p className="mb-2 text-[12px] text-ok">{message}</p>}
+      {error && <ErrorNotice error={error} compact />}
+
+      <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
+        <div className="space-y-3">
+          <div className="rounded-lg border border-line bg-surface p-3.5">
+            <div className="text-[13px] font-medium">显存推荐</div>
+            {recommend ? (
+              <>
+                <div className="mt-1 text-[13px]">
+                  batch <span className="font-semibold tabular">{recommend.batchSize}</span> · duration{" "}
+                  <span className="font-semibold tabular">{recommend.diffusionDuration}s</span> · 进程{" "}
+                  <span className="tabular">{recommend.numProcesses}</span>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">{recommend.reason}</p>
+                {!recommend.trainable && <p className="mt-1 text-[12px] text-danger">当前显存不可训练</p>}
+              </>
+            ) : (
+              <p className="mt-1 text-[12px] text-muted">读取中…</p>
+            )}
+          </div>
+          <div className="rounded-lg border border-line bg-surface p-3.5 text-[12px] text-muted">
+            <div className="text-[13px] font-medium text-ink">停止与续训</div>
+            <p className="mt-1 leading-relaxed">
+              训练没有“暂停”，停止后最多回退到最近一次保存（默认每 800 步）。已有 checkpoint 时按钮变为「继续训练」，会从最新 checkpoint 接着跑；要从零开始需先归档 <code>logs/44k</code>。
+            </p>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-lg border border-line">
+          <div className="border-b border-line bg-raised px-3 py-2 text-[12px] text-muted">checkpoint</div>
+          <table className="w-full text-left text-[12px]">
+            <tbody>
+              {checkpoints.length === 0 && (
+                <tr>
+                  <td className="px-3 py-8 text-center text-muted">还没有 checkpoint</td>
+                </tr>
+              )}
+              {checkpoints.map((checkpoint) => (
+                <tr key={checkpoint.path} className="border-t border-line/60">
+                  <td className="px-3 py-1.5 tabular">{checkpoint.step} 步</td>
+                  <td className="px-3 py-1.5 tabular text-muted">{formatBytes(checkpoint.bytes)}</td>
+                  <td className="px-3 py-1.5 text-muted">{checkpoint.modified}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    <Button size="sm" onClick={() => void register(checkpoint)}>
+                      登记为模型
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {(() => {
+        const points = parseLossSeries(events);
+        const path = sparklinePath(points, 520, 96);
+        if (!path) return null;
+        const last = points[points.length - 1];
+        return (
+          <div className="mt-3 rounded-lg border border-line bg-surface p-3">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="font-medium">loss 曲线</span>
+              <span className="tabular text-muted">
+                第 {last?.step} 步 · loss {last?.value.toFixed(4)}
+              </span>
+            </div>
+            <svg viewBox="0 0 520 96" className="mt-1 h-24 w-full" role="img" aria-label="训练 loss 曲线">
+              <path d={path} fill="none" stroke="var(--accent, #d66a3a)" strokeWidth="1.5" />
+            </svg>
+          </div>
+        );
+      })()}
+
+      <p className="mt-3 text-[11px] text-muted">
+        当前状态：{statusLabel(jobId ? "running" : "queued")}
+        {jobId ? ` · 任务 ${jobId}` : ""} · 冒烟产物在 logs/_smoke，不会污染正式模型目录。
+      </p>
+    </>
+  );
+}

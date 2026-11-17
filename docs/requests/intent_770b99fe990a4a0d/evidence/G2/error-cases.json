@@ -1,0 +1,74 @@
+[
+    {
+        "Id":  "G2-1",
+        "Name":  "缺权重",
+        "Status":  "PASS",
+        "Evidence":  "doctor 权重类不通过=3，trainable=False"
+    },
+    {
+        "Id":  "G2-6",
+        "Name":  "ffmpeg 缺失",
+        "Status":  "SKIP",
+        "Evidence":  "ffmpeg 状态=pass（本机已安装，缺失态无法构造）"
+    },
+    {
+        "Id":  "G2-12",
+        "Name":  "版本错配",
+        "Status":  "PASS",
+        "Evidence":  "python 状态=warn cause=\u0027检测到 3.13.16\u0027"
+    },
+    {
+        "Id":  "G2-2",
+        "Name":  "显存不足",
+        "Status":  "PASS",
+        "Evidence":  "cargo test recommend exit=0（含 6GB 上限与不可训练档）"
+    },
+    {
+        "Id":  "G2-3",
+        "Name":  "配置非法",
+        "Status":  "PASS",
+        "Evidence":  ""
+    },
+    {
+        "Id":  "G2-4",
+        "Name":  "路径非法",
+        "Status":  "PASS",
+        "Evidence":  "cargo test safe_join exit=0"
+    },
+    {
+        "Id":  "G2-5",
+        "Name":  "磁盘不足",
+        "Status":  "SKIP",
+        "Evidence":  "需可控磁盘配额；doctor 只做余量告警"
+    },
+    {
+        "Id":  "G2-10",
+        "Name":  "权限不足",
+        "Status":  "SKIP",
+        "Evidence":  "需 ACL 构造；代码路径返回 SVC-7003 并保留原始错误"
+    },
+    {
+        "Id":  "G2-7",
+        "Name":  "进程崩溃",
+        "Status":  "PASS",
+        "Evidence":  "cargo test crash exit=0"
+    },
+    {
+        "Id":  "G2-8",
+        "Name":  "音频损坏",
+        "Status":  "PASS",
+        "Evidence":  ""
+    },
+    {
+        "Id":  "G2-9",
+        "Name":  "模型不匹配",
+        "Status":  "PASS",
+        "Evidence":  ""
+    },
+    {
+        "Id":  "G2-11",
+        "Name":  "端口占用",
+        "Status":  "PASS",
+        "Evidence":  "cargo test avoids_occupied_port exit=0"
+    }
+]

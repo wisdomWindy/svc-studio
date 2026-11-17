@@ -1,0 +1,462 @@
+{
+  "request_id": "intent_770b99fe990a4a0d",
+  "title": "so-vits-svc 4.1-Stable 自动化训练与推理桌面端",
+  "created_at": "2026-11-16T19:01:00+08:00",
+  "updated_at": "2026-11-17T21:40:00+08:00",
+  "stage": "execute",
+  "status": "in_progress",
+  "delivery_unit": "single",
+  "speed_profile": "S3",
+  "source_project": {
+    "repo": "https://github.com/svc-develop-team/so-vits-svc",
+    "branch": "4.1-Stable",
+    "license": "AGPL-3.0",
+    "integration": "vendored"
+  },
+  "approvals": {
+    "spec_approved": true,
+    "plan_approved": true,
+    "spec_approved_at": "2026-11-16T20:55:00+08:00"
+  },
+  "loop": {
+    "iteration": 61,
+    "state": "blocked",
+    "last_completed_stage": "execute",
+    "pending_gate": null,
+    "reentry_reason": null,
+    "blocked_reason": "R13–R17（E3 长训 / F1 单条推理 / F3 RTF / G1 满载延迟 / G5 24h 浸泡）需要 NVIDIA GPU（≥6GB）与至少一个 so-vits-svc 模型权重；本机为 CPU-only，该条件自第 28 轮起持续存在。W9-5 需要干净 Windows VM。"
+  },
+  "module_flow": null,
+  "gates": {
+    "G0": {
+      "name": "intake",
+      "status": "pass",
+      "evidence": [
+        "intake.md#6 （10 条旅程 + 成功判据）",
+        "scope.yaml （in/out 含 TTS 排除）",
+        "compliance.md#8 （AGPL 源码提供方式 + 首启确认流程）"
+      ],
+      "checked_at": "2026-11-16T19:05:00+08:00"
+    },
+    "G1": {
+      "name": "requirement-splitting",
+      "status": "pass",
+      "evidence": [
+        "tools/check_traceability.py 输出：requirements=44 p0=12 acceptance=49 covered=49 RESULT PASS",
+        "requirement-splitting/traceability.md （自动生成，§3 门禁判定全通过）",
+        "requirement-splitting/requirements.md#4 （P2 Backlog 显式排除）"
+      ],
+      "checked_at": "2026-11-16T19:07:00+08:00"
+    }
+  },
+  "artifacts": {
+    "intake.md": "done",
+    "scope.yaml": "done",
+    "compliance.md": "done",
+    "requirement-analysis.md": "done",
+    "PRD.md": "done (v0.9: 质量/性能预算翻倍收紧)",
+    "prd/appendix-a-parameters.md": "done",
+    "prd/appendix-b-error-codes.md": "done",
+    "prd/appendix-c-data-model.md": "done",
+    "requirement-splitting/requirements.md": "done (rev2: 目标/底线双列)",
+    "requirement-splitting/traceability.md": "done (generated)",
+    "tools/check_traceability.py": "done",
+    "design/page-design.md": "done (rev2: React)",
+    "spec/spec.md": "done (rev3: 性能目标+质量门禁)",
+    "design/architecture-design.md": "done (rev3: 预算)",
+    "plan/plan.md": "done (v1.0, approved)",
+    "adr/": "done",
+    "spike/report.md": "done (5 条假设：4 验证 / 1 记录未验证原因)",
+    "verification/verification.md": "done (ledger 23/19/7, not passed)",
+    "review/review.md": "done (conditional approval, 5 GPU-dependent items)",
+    "request.md": "done",
+    "adr/ADR-001-ui-and-runtime.md": "done (Tauri)",
+    "adr/ADR-002-job-model.md": "done",
+    "adr/ADR-003-assets-offline.md": "done",
+    "plan/task-board.md": "done (WP0–WP9 脚本；WP9 真机待运行时)",
+    "execution/changelog.md": "done (WP0–WP9)",
+    "error_codes.md": "done（12 条必测 + 3 条 SKIP 构造说明）",
+    "tools/check_state.py": "done",
+    "tools/check_verification.py": "done",
+    "tools/check_error_codes.py": "done",
+    "tools/check_error_cases.py": "done",
+    "tools/check_compliance.py": "done"
+  },
+  "open_questions": [
+    {
+      "id": "Q-01",
+      "topic": "暂停=停止+续训语义",
+      "default": "接受",
+      "blocking": false
+    },
+    {
+      "id": "Q-02",
+      "topic": "应用内官方资产直链下载",
+      "default": "提供但默认关闭",
+      "blocking": false
+    },
+    {
+      "id": "Q-03",
+      "topic": "ONNX 导出进首发",
+      "default": "是（实验性）",
+      "blocking": false
+    },
+    {
+      "id": "Q-04",
+      "topic": "动态声线混合时间轴编辑器",
+      "default": "基础版表格",
+      "blocking": false
+    },
+    {
+      "id": "Q-05",
+      "topic": "内置 ffmpeg",
+      "default": "是",
+      "blocking": false
+    }
+  ],
+  "next_actions": [
+    "等待可用的内置运行时（2.2GB）：拿到后执行 build-runtime → stage-runtime → release，补齐 H1/H2/H3/H4",
+    "在有 GPU 的机器上跑 100 步真实训练与单条推理，补齐 E2/E3/F1/F3",
+    "决策安装体积：CPU torch + 按需 CUDA，或上调 2.2GB 预算",
+    "G5 24h 浸泡与 G1 训练满载探针需长时间独占环境，排在运行时到位之后"
+  ],
+  "risks": [
+    {
+      "id": "R1",
+      "level": "high",
+      "topic": "fairseq 0.12.2 与 torch 版本兼容矩阵未验证",
+      "owner_stage": "spec/spike",
+      "status": "partially-mitigated",
+      "note": "编排层已用假 upstream 验证；torch+fairseq 真实组合仍待运行时"
+    },
+    {
+      "id": "R2",
+      "level": "high",
+      "topic": "PyInstaller 打包 torch/CUDA/cuDNN DLL 完整性",
+      "owner_stage": "packaging",
+      "status": "partially-mitigated",
+      "note": "verify-dlls 三场景自测通过；真实 DLL 待运行时"
+    },
+    {
+      "id": "R3",
+      "level": "medium",
+      "topic": "上游相对路径与项目工作区耦合",
+      "owner_stage": "spec"
+    },
+    {
+      "id": "R4",
+      "level": "medium",
+      "topic": "中文/长路径下 fairseq 与 ffmpeg 行为",
+      "owner_stage": "verify"
+    },
+    {
+      "id": "R5",
+      "level": "medium",
+      "topic": "6GB 显存扩散训练可用性",
+      "owner_stage": "spec"
+    },
+    {
+      "id": "R6",
+      "level": "low",
+      "topic": "上游归档后无安全更新",
+      "owner_stage": "operations"
+    }
+  ],
+  "user_confirmations": {
+    "prd_approved": true,
+    "approved_at": "2026-11-16T20:00:00+08:00",
+    "approved_scope": "PRD v0.6 + Q-01..Q-05 默认值（按默认走）"
+  },
+  "quality_bar": {
+    "policy": "no-schedule-tradeoff",
+    "cold_start_interactive_ms": 1500,
+    "route_switch_ms": 100,
+    "ipc_roundtrip_p95_ms": 10,
+    "long_task_gt_50ms_count": 0,
+    "cancel_exit_ms": 2000,
+    "memory_growth_24h_pct": 3,
+    "installer_gb": 2.2,
+    "coverage": {
+      "rust": 0.85,
+      "python": 0.9,
+      "frontend_critical": 0.8
+    },
+    "fuzz_iterations": 1000000,
+    "perf_regression_block_pct": 5
+  },
+  "execution": {
+    "milestone": "M6",
+    "word_packages_done": [
+      "WP0-WP8",
+      "WP9（脚本 + 真实 CPU 运行时 + 317MB 安装包 + 安装/卸载实测）"
+    ],
+    "installer": {
+      "path": "evidence/H5/SVC Studio_0.1.0_x64-setup.exe",
+      "bytes": 221823000,
+      "sha256": "63d8a80e573dc6b5073ce3b1f56baafb19aab87be1fbcd593c1f0e8e1995e5ca",
+      "note": "无内置运行时，不可作为 H1 证据"
+    },
+    "risks": [
+      "安装体积：211MB installer(WebView2) + torch cu117 ~2.2GB 超 2.2GB 预算"
+    ],
+    "blocked": [
+      {
+        "id": "R13-R17",
+        "reason": "no NVIDIA GPU on this machine (weights are now in place)",
+        "unblock": "run on a >=6GB VRAM GPU box; doctor would be green and E3/F1/F3/G1/G5 can be evidenced"
+      },
+      {
+        "id": "W9-5",
+        "reason": "no clean Windows VM",
+        "unblock": "provide a clean VM and run scripts/verify-clean-vm.ps1"
+      }
+    ],
+    "quality_gate": "cargo test 107; pytest 100; vitest 35; clippy 0; ledger 28/17/4; check.ps1 PASS",
+    "error_cases": {
+      "pass": 9,
+      "fail": 0,
+      "skip": 3,
+      "evidence": "evidence/G2/error-cases.json"
+    },
+    "tray_close_to_tray": "verified: WM_CLOSE -> alive, hidden",
+    "a2_evidence": {
+      "gate_blocked": "evidence/A2/consent-gate.png",
+      "gate_checked": "evidence/A2/consent-checked.png",
+      "after_accept_page": "evidence/WP8/projects-after-consent.png",
+      "db_rows": 4,
+      "doc_version": "v1"
+    },
+    "resume_support": "train_start(resume) + UI 继续训练；4 条断言",
+    "doctor_gate": "train_start/preprocess_start 强制校验 doctor 结论；doctor_cached 供 UI",
+    "g4_evidence": "evidence/G4/after-close.png; alive=True visible=False",
+    "qc_gate": "preprocess_start 校验 QC 结论；dataset_qc_verdict 供 UI",
+    "d1_evidence": {
+      "path": "evidence/D1/d1-preprocess.json",
+      "exit": 0,
+      "products": {
+        "wav": 2,
+        "soft": 2,
+        "f0": 2,
+        "spec": 2
+      },
+      "manifest_passed": true
+    },
+    "critical_fixes": [
+      "svc_bridge CLI 缺 train/aux/model/infer/modeltool 分发（真实运行会静默失败）",
+      "冒烟到 100 步在 Windows 上被判失败（终止码为正数未被归一化）",
+      "aux.py 是 Windows 保留设备名：打包复制中断，内置运行时缺模块；已改名 extras.py",
+      "安装版找不到 resources/runtime（界面显示运行时未就绪）",
+      "doctor JSON camelCase/snake_case 不一致导致解析失败",
+      "GPU 失败项缺少修复动作（B2 要求每项都有）"
+    ],
+    "e2_evidence": {
+      "path": "evidence/E2/train-smoke.json",
+      "exit": 0,
+      "events": 102,
+      "max_step": 100
+    },
+    "host_e2e": [
+      "bridge::host_train_e2e::smoke_run_reaches_limit_and_reports_result",
+      "bridge::host_train_e2e::stop_kills_runner_within_grace"
+    ],
+    "error_code_drift": "check_error_codes.py: 0 drift (29 doc / 29 code), wired into check.ps1",
+    "verification_counts": {
+      "ok": 32,
+      "partial": 16,
+      "blocked": 1
+    },
+    "verification_selfcheck": "tools/check_verification.py wired into check.ps1",
+    "compliance": {
+      "sbom": "CycloneDX 1.5, 50 components, includes so-vits-svc",
+      "agpl": "full text present",
+      "source_zip_mb": 8.7,
+      "self_check": "tools/check_compliance.py PASS",
+      "note": "materials generated under artifacts/, not yet bundled into installer"
+    },
+    "h3_selftest": {
+      "cases": 3,
+      "passed": 3,
+      "evidence": "evidence/H3/verify-dlls-selftest.json"
+    },
+    "error_cases_consistency": {
+      "doc": 12,
+      "script": 12,
+      "evidence": 12,
+      "pass": 9,
+      "skip": 3
+    },
+    "g1_probe": {
+      "path": "evidence/G1/probe.json",
+      "duration_ms": 5021,
+      "samples": 227,
+      "p50": 2,
+      "p95": 3.2,
+      "max": 4,
+      "over200ms": 0,
+      "caveat": "IPC 施压，不是训练满载"
+    },
+    "state_selfcheck": "tools/check_state.py：31 项 artifacts + 23 项必需交付物，全部存在",
+    "runtime": {
+      "kind": "cpu",
+      "python": "3.8.9 embeddable (huawei mirror, 6.0 MB/s)",
+      "torch": "1.13.1+cpu (tsinghua)",
+      "staged_files": 11783,
+      "staged_gb": 0.88,
+      "installer_mb": 317.71
+    },
+    "h4_install_test": {
+      "installer_mb": 317.71,
+      "install_seconds": 33.4,
+      "installed_gb": 0.89,
+      "uninstall_residual_files": 0,
+      "registry_key_removed": true,
+      "evidence": "evidence/H4/install-uninstall.json"
+    },
+    "h1_install": {
+      "installer_mb": 317.68,
+      "installed_gb": 0.89,
+      "footer": "运行时：内置运行时已就绪",
+      "installed_python": "3.8.9",
+      "installed_torch": "1.13.1+cpu",
+      "doctor_items": 9,
+      "doctor_pass": 3,
+      "doctor_fail": 5,
+      "uninstall_seconds": 6.2,
+      "evidence": "evidence/H1/install-runtime-ready.json"
+    },
+    "review_conclusion": "conditional-approval (R1–R12 pass, R13–R17 blocked on GPU)",
+    "remaining_hardware_blocked": [
+      "E3",
+      "F1",
+      "F3",
+      "G1",
+      "G5"
+    ],
+    "wp7_closure": {
+      "model_compress": "done (命令 + 登记新模型 + UI)",
+      "model_onnx": "done (需项目；导入模型给出可操作错误)",
+      "mix_preview": "done (worker mix CLI + 校验 UI)",
+      "limit": "真实执行需模型权重；本机无"
+    },
+    "oom_self_heal": {
+      "implemented": true,
+      "tests": 2,
+      "evidence": "worker/tests/test_train_oom.py",
+      "note": "真实 GPU OOM 文本未验证，检测子串与 CUDA 报错一致"
+    },
+    "audit": {
+      "doc": "execution/audit.md",
+      "findings": 6,
+      "note": "任务板状态失实 6 处，已纠正；无新功能缺口"
+    },
+    "loss_curve": "progress.losses -> CURVE job events -> SVG sparkline",
+    "a11y": {
+      "skip_link": true,
+      "focus_visible": true,
+      "dialog_semantics": true,
+      "tests": 3,
+      "remaining": "200% zoom / contrast / screen reader manual walkthrough"
+    },
+    "release_checks": {
+      "R1": "check.ps1 PASS (10 steps)",
+      "R2": "97 / 98 / 35",
+      "R3": "317.68MB installer + install/uninstall evidence",
+      "R4": "compliance PASS",
+      "R5": "error codes 29/29, cases 12/12",
+      "R6": "ledger 25/19/5 consistent",
+      "R7": "state artifacts 31 + required 23",
+      "R8": "consent gate evidence",
+      "R9": "close-to-tray evidence",
+      "R10": "D1 preprocess evidence",
+      "R11": "E2 + host_train_e2e",
+      "R12": "OOM retry tests"
+    },
+    "pretrained_assets": {
+      "source": "upstream README_zh_CN.md (hf-mirror)",
+      "contentvec_mb": 180.7,
+      "rmvpe_mb": 351.4,
+      "nsf_hifigan_mb": 54.2,
+      "location": "D:\\program\\svcstudio\\pretrain",
+      "doctor": "pass 6 / warn 1 / fail 2 (cuda, gpu only)"
+    },
+    "data_root": {
+      "path": "D:\\program\\svcstudio",
+      "size_gb": 0.57,
+      "resolution": "SVCSTUDIO_DATA_ROOT -> %LOCALAPPDATA%/svc-studio/data-root.txt -> %USERPROFILE%/SVCStudio",
+      "migration_script": "scripts/migrate-data.ps1",
+      "doctor_on_new_root": "pass 7 / warn 0 / fail 2 (cuda, gpu)",
+      "evidence": "evidence/WP8/data-root-d-drive.png"
+    },
+    "gpu_probe": {
+      "gpu": "NVIDIA GeForce RTX 5060 Ti 16GB",
+      "compute_capability": 12.0,
+      "driver": "621.14 (CUDA UMD 13.5)",
+      "cuda_toolkit": "12.8",
+      "torch_cu117": "hangs (no sm_120 kernels; CUDA 11.7 max sm_87)",
+      "torch_cu128_2_8": "works: init 0.09s, first matmul 0.22s, warm 1ms, conv ok",
+      "corrected": true,
+      "note": "previous claim 'GPU incompatible' was wrong; torch 1.13 is the incompatible part"
+    },
+    "decision_needed": "升级运行时到 Python 3.11/3.13 + torch 2.8+cu128，并替换 fairseq 依赖（架构级变更，需用户同意）",
+    "cpu_mode": {
+      "inference": "supported upstream (-d/--device, auto cpu fallback); our report now records device",
+      "training": "upstream hard-forbids CPU training (train.py assert torch.cuda.is_available())",
+      "current_runtime": "torch 1.13.1+cpu",
+      "blocker_for_real_run": "no model file (G_*.pth) yet"
+    },
+    "gpu_training": {
+      "e2_smoke_steps": 120,
+      "e3_steps": 2020,
+      "reference_loss": [
+        545.2,
+        36.4
+      ],
+      "vram_peak_mb": 14004,
+      "e4_resume": "G_2000 -> step 2060",
+      "evidence": [
+        "evidence/E2/gpu-smoke.json",
+        "evidence/E3/long-train.json"
+      ]
+    },
+    "runtime_modes": {
+      "cpu": "runtime/ (py3.8 + torch1.13 cpu)",
+      "gpu": "runtime_gpu/ (py3.13 + torch2.8 cu128 + fairseq-fixed)",
+      "switch": "settings.runtime_mode + Settings UI"
+    },
+    "remaining_blocked": [
+      "F1",
+      "F3",
+      "G1",
+      "G5"
+    ],
+    "nsf_hifigan": {
+      "source": "openvpi/vocoders nsf_hifigan_20221211.zip (README)",
+      "files": [
+        "config.json",
+        "model",
+        "NOTICE.txt",
+        "NOTICE.zh-CN.txt"
+      ],
+      "dest": "D:\\program\\svcstudio\\pretrain\\nsf_hifigan",
+      "doctor_with_gpu": "trainable=True (python/disk warn only)",
+      "enhance_load": "Load HifiGAN: pretrain/nsf_hifigan/model"
+    },
+    "doctor_runtime": "doctor_report now uses runtime_mode (was hardcoded CPU)",
+    "isolation": {
+      "app_worker_python": "bundled runtime only (runtime/ or runtime_gpu/); system python rejected with SVC-5001",
+      "env": "no host PYTHONPATH inheritance; PYTHONNOUSERSITE=1",
+      "dev_scripts": "may use system python (allowed by user)"
+    },
+    "h6_rollback": {
+      "tested": "0.1.1 install -> 0.1.0 downgrade -> app runs, data intact",
+      "known_issue": "10 residual files if uninstalling after downgrade",
+      "evidence": "evidence/H6/rollback.json"
+    },
+    "g5_soak": {
+      "startedAt": "2026-11-17T13:33:41+08:00",
+      "duration": "24h",
+      "harness": "scripts/soak.ps1 (5min sampling + 30min doctor)",
+      "validated": "3min run: 6 samples, growth 1.8%, 0 failures"
+    }
+  }
+}

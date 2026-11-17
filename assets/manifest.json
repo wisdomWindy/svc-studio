@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-11-16T00:00:00Z",
+  "assets": [
+    {
+      "id": "contentvec",
+      "kind": "encoder",
+      "key": "vec768l12",
+      "version": "2022-11",
+      "required": true,
+      "sourceUrl": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt",
+      "licenseNote": "ContentVec / HuBERT，请自行确认来源与授权",
+      "files": [
+        {
+          "relPath": "pretrain/checkpoint_best_legacy_500.pt",
+          "bytes": 189507909,
+          "sha256": "f54b40fd2802423a5643779c4861af1e9ee9c1564dc9d32f54f20b5ffba7db96"
+        }
+      ]
+    },
+    {
+      "id": "rmvpe",
+      "kind": "f0",
+      "key": "rmvpe",
+      "version": "230917",
+      "required": true,
+      "sourceUrl": "https://github.com/yxlllc/RMVPE/releases/download/230917/rmvpe.zip",
+      "licenseNote": "RMVPE，请自行确认来源与授权",
+      "files": [
+        {
+          "relPath": "pretrain/rmvpe.pt",
+          "bytes": 368492925,
+          "sha256": "1d49bd662038808878c9d7420e0f583f506fe69086cc384f0da88f0b3a4e1115"
+        }
+      ]
+    },
+    {
+      "id": "nsf_hifigan",
+      "kind": "vocoder",
+      "key": "nsf-hifigan",
+      "version": "20221211",
+      "required": true,
+      "sourceUrl": "https://github.com/openvpi/vocoders/releases/download/nsf-hifigan-v1/nsf_hifigan_20221211.zip",
+      "licenseNote": "NSF-HiFiGAN，请自行确认来源与授权",
+      "files": [
+        {
+          "relPath": "pretrain/nsf_hifigan/model",
+          "bytes": 56825430,
+          "sha256": "2c576b63b7ed952161b70fad34e0562ace502ce689195520d8a2a6c051de29d6"
+        },
+        {
+          "relPath": "pretrain/nsf_hifigan/config.json",
+          "bytes": 845,
+          "sha256": "9707614b59c299766a91ea25b5ec62cfd813a45a902766c454f75b6868118684"
+        }
+      ]
+    },
+    {
+      "id": "pretrained-44k",
+      "kind": "pretrained",
+      "key": "G0-D0",
+      "version": "4.1",
+      "required": false,
+      "sourceUrl": null,
+      "licenseNote": "底模来源由用户自行提供，软件不内置",
+      "files": []
+    }
+  ]
+}

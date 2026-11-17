@@ -1,0 +1,21 @@
+{
+  "exitCode": 0,
+  "eventCount": 102,
+  "kinds": [
+    "progress",
+    "result",
+    "stage"
+  ],
+  "progressEvents": 100,
+  "maxStep": 100,
+  "smokeConfigCreated": true,
+  "smokeConfig": {
+    "train": {
+      "batch_size": 2,
+      "eval_interval": 50,
+      "log_interval": 10,
+      "keep_ckpts": 2
+    }
+  },
+  "stderrTail": ""
+}

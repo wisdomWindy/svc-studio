@@ -1,0 +1,25 @@
+﻿{
+    "generatedAt":  "2026-11-17T15:16:38.8517998+08:00",
+    "cases":  [
+                  {
+                      "case":  "intact",
+                      "exit":  0,
+                      "expect":  0,
+                      "pass":  true
+                  },
+                  {
+                      "case":  "tampered",
+                      "exit":  1,
+                      "expect":  1,
+                      "pass":  true
+                  },
+                  {
+                      "case":  "missing-critical",
+                      "exit":  1,
+                      "expect":  1,
+                      "pass":  true
+                  }
+              ],
+    "passed":  3,
+    "total":  3
+}

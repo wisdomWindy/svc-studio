@@ -1,0 +1,30 @@
+{
+  "capturedAt": "2026-11-16T12:40:28.746Z",
+  "bundle": {
+    "jsGzipKb": 122.1,
+    "cssGzipKb": 3.3,
+    "assets": [
+      {
+        "file": "core-DV6XEvTN.js",
+        "rawBytes": 96,
+        "gzipBytes": 110
+      },
+      {
+        "file": "index-C5ux55EI.js",
+        "rawBytes": 394639,
+        "gzipBytes": 124911
+      },
+      {
+        "file": "index-CkZ_b4S-.css",
+        "rawBytes": 12918,
+        "gzipBytes": 3430
+      }
+    ]
+  },
+  "runtime": {
+    "coldStartMs": null,
+    "interactiveMs": null,
+    "routeSwitchMs": null,
+    "ipcRoundTripMs": null
+  }
+}

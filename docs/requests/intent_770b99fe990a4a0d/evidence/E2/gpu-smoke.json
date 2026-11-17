@@ -1,0 +1,28 @@
+﻿{
+    "schema":  "svcstudio.train-smoke/2",
+    "generatedAt":  "2026-11-17T12:11:37.6978229+08:00",
+    "device":  "cuda:0 (RTX 5060 Ti, sm_120)",
+    "python":  "3.13.7",
+    "torch":  "2.8.0+cu128",
+    "fairseq":  "0.12.3.1 (fairseq-fixed)",
+    "steps":  120,
+    "firstLossLine":  "INFO:44k:Losses: [5.320723533630371, 4.568238258361816, 1.1133413314819336, 137.0714111328125, 141.25308227539062], step: 1, lr: 0.0001, reference_loss: 289.3267822265625",
+    "lastLossLine":  "INFO:44k:Losses: [0.5290453433990479, 5.517058849334717, 11.68341064453125, 18.93699836730957, 12.868918418884277], step: 120, lr: 9.976276699833672e-05, reference_loss: 49.535430908203125",
+    "checkpoints":  [
+                        {
+                            "name":  "G_0.pth",
+                            "mb":  598.7
+                        },
+                        {
+                            "name":  "G_100.pth",
+                            "mb":  598.8
+                        },
+                        {
+                            "name":  "G_75.pth",
+                            "mb":  598.7
+                        }
+                    ],
+    "epochCostSeconds":  3.31,
+    "exitCode":  0,
+    "note":  "合成 24 条 12s 音频（非真实人声），只验证训练链路"
+}

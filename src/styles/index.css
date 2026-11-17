@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 唯一 token 来源：页面设计 §11。业务代码禁止硬编码色值。 */
+@layer base {
+  :root,
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --canvas: 15 17 21;
+    --surface: 23 26 32;
+    --raised: 31 35 43;
+    --line: 45 51 62;
+    --ink: 232 236 243;
+    --muted: 148 158 176;
+    --accent: 214 106 58;
+    --danger: 223 91 91;
+    --warn: 222 165 62;
+    --ok: 88 176 124;
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
+    --canvas: 246 247 249;
+    --surface: 255 255 255;
+    --raised: 250 250 252;
+    --line: 222 226 233;
+    --ink: 28 32 39;
+    --muted: 104 114 132;
+    --accent: 191 84 40;
+    --danger: 190 62 62;
+    --warn: 158 112 26;
+    --ok: 52 140 92;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow: hidden;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/70 ring-offset-0;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-line;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

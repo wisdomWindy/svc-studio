@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-11-16T23:12:52.718631+08:00",
+  "filledFiles": 4,
+  "missing": [],
+  "mismatched": [],
+  "assets": [
+    {
+      "id": "contentvec",
+      "files": 1,
+      "bytes": 189507909
+    },
+    {
+      "id": "rmvpe",
+      "files": 1,
+      "bytes": 368492925
+    },
+    {
+      "id": "nsf_hifigan",
+      "files": 2,
+      "bytes": 56826275
+    }
+  ]
+}

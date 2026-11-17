@@ -1,0 +1,15 @@
+﻿{
+    "schema":  "svcstudio.soak/1",
+    "startedAt":  "2026-11-17T13:22:33.3759342+08:00",
+    "finishedAt":  "2026-11-17T13:25:33.5076675+08:00",
+    "durationSeconds":  180,
+    "plannedSeconds":  180,
+    "samples":  6,
+    "firstWorkingSetMB":  "81.1",
+    "lastWorkingSetMB":  82.6,
+    "growthPercent":  1.8,
+    "appAliveAtEnd":  true,
+    "failures":  0,
+    "csv":  "soak-20261117-132228.csv",
+    "verdict":  "pass"
+}

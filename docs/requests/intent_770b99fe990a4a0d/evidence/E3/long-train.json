@@ -1,0 +1,20 @@
+{
+  "schema": "svcstudio.train-long/1",
+  "device": "cuda:0 RTX 5060 Ti (sm_120, 16GB)",
+  "torch": "2.8.0+cu128",
+  "steps": 2020,
+  "loggedSamples": 102,
+  "exitCode": 0,
+  "lossFinite": true,
+  "referenceLossFirst": 545.197998046875,
+  "referenceLossLast": 36.361663818359375,
+  "vramPeakMb": 14004,
+  "checkpoints": [
+    "G_0.pth",
+    "G_1800.pth",
+    "G_2000.pth"
+  ],
+  "resumeFrom": "G_2000",
+  "resumeFirstStep": 2020,
+  "note": "合成 24 条 12s 音频，只验证训练稳定性与显存，不代表音色质量"
+}
