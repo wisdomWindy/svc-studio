@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { backend } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { toErrorText } from "@/lib/errors";
+import { useNavigate } from "react-router-dom";
 
 interface Manifest {
   passed?: boolean;
@@ -17,6 +18,7 @@ interface Manifest {
 
 export function PreprocessPage() {
   const project = useActiveProject();
+  const navigate = useNavigate();
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [assertion, setAssertion] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -122,23 +124,37 @@ export function PreprocessPage() {
             <Button disabled={busy} onClick={() => void check()}>
               检查配置
             </Button>
-            <Button
-              variant="primary"
-              disabled={busy || gate?.trainable === false || qc?.passed === false || !qc?.exists}
-              onClick={() => void start()}
-            >
-              {busy ? "提交中…" : "开始预处理"}
-            </Button>
+            {!qc?.exists ? (
+              <Button variant="primary" onClick={() => navigate("/dataset")}>
+                先上传音频
+              </Button>
+            ) : qc?.passed === false ? (
+              <Button variant="primary" onClick={() => navigate("/dataset")}>
+                去修复数据集
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                disabled={busy || gate?.trainable === false}
+                onClick={() => void start()}
+              >
+                {busy ? "提交中…" : "开始预处理"}
+              </Button>
+            )}
           </div>
         }
         badge={<span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">{project.name}</span>}
       />
 
-      {qc && (!qc.exists || !qc.passed) && (
+      {qc && !qc.exists && (
+        <div className="mb-2 rounded-lg border border-line bg-surface px-3 py-2 text-[12px] text-muted">
+          数据集还是空的：先去「数据集」页上传原始音频，软件会自动分离人声、切片成 44.1k 单声道片段，
+          QC 通过后就能开始预处理。
+        </div>
+      )}
+      {qc?.exists && !qc.passed && (
         <div className="mb-2 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-[12px] text-warn">
-          {qc.exists
-            ? `数据集 QC 未通过（${qc.blocking} 个阻断项），预处理被阻断；请先在数据集页修复。`
-            : "还没有 QC 报告，先到数据集页运行 QC。"}
+          数据集 QC 未通过（{qc.blocking} 个阻断项），预处理被阻断；请先在「数据集」页修复。
         </div>
       )}
       {gate?.trainable === false && (
