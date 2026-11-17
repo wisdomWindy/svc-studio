@@ -95,7 +95,9 @@ pub async fn install_runtime_from_zip(
     }
     std::fs::create_dir_all(&target)?;
 
-    let status = std::process::Command::new("tar")
+    let mut tar = std::process::Command::new("tar");
+    crate::core::proc::hide_console(&mut tar);
+    let status = tar
         .arg("-x")
         .arg("-f")
         .arg(&zip)

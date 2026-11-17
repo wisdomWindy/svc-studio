@@ -99,7 +99,9 @@ mod tests {
         #[cfg(windows)]
         {
             let guard = JobGuard::new().expect("job object");
-            let mut child = tokio::process::Command::new("cmd")
+            let mut cmd = tokio::process::Command::new("cmd");
+            crate::core::proc::hide_console_async(&mut cmd);
+            let mut child = cmd
                 .args(["/C", "timeout", "/T", "5", "/NOBREAK"])
                 .stdout(std::process::Stdio::null())
                 .spawn()

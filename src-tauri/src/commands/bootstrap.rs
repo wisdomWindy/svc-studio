@@ -32,23 +32,72 @@ pub struct Bootstrap {
 }
 
 /// 启动握手：目录与数据库就绪、schema 版本、孤儿任务对账结果。
+/// 诊断开关：设 SVCSTUDIO_DOCTOR_ON_START=1 时，启动即在后台跑一次 doctor。
+///
+/// 用途是验证「worker 子进程不会弹出控制台窗口」——正常情况下前端点「环境自检」
+/// 才会拉起 worker，自动化测试里没法点按钮，所以留这个开关。
+fn maybe_run_doctor() {
+    if std::env::var("SVCSTUDIO_DOCTOR_ON_START").ok().as_deref() != Some("1") {
+        return;
+    }
+    let python = crate::core::runtime::resolve_python();
+    if !(python.is_absolute() && python.is_file()) {
+        return;
+    }
+    let worker = crate::core::runtime::resolve_worker_dir();
+    let mut cmd = std::process::Command::new(python);
+    crate::core::proc::hide_console(&mut cmd);
+    cmd.arg("-m")
+        .arg("svc_bridge")
+        .arg("doctor")
+        .arg("--json")
+        .current_dir(&worker)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .envs(crate::core::runtime::worker_env(&worker));
+    let _ = cmd.spawn();
+}
+
+/// 读内置运行时的 Python 版本；失败返回 None（不阻塞启动）。
+fn probe_python_version(python: &std::path::Path) -> Option<String> {
+    let mut cmd = std::process::Command::new(python);
+    crate::core::proc::hide_console(&mut cmd);
+    let output = cmd
+        .arg("-c")
+        .arg("import sys; print(sys.version.split()[0])")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
 #[tauri::command]
 pub fn bootstrap(state: State<'_, AppPaths>) -> AppResult<Bootstrap> {
+    maybe_run_doctor();
     let first_run = !state.data_root.join(".bootstrapped").exists();
     if first_run {
         crate::infra::fs::atomic_write(&state.data_root.join(".bootstrapped"), b"0.1.0\n")?;
     }
 
+    let python = crate::core::runtime::resolve_python();
+    let runtime_ready = python.is_absolute() && python.is_file();
+    let runtime_version = if runtime_ready {
+        probe_python_version(&python)
+    } else {
+        None
+    };
+
     Ok(Bootstrap {
         app_version: env!("CARGO_PKG_VERSION").to_string(),
-        runtime_version: None,
-        runtime_ready: {
-            let python = crate::core::runtime::resolve_python();
-            python.is_file()
-        },
-        python_path: crate::core::runtime::resolve_python()
-            .to_string_lossy()
-            .to_string(),
+        runtime_version,
+        runtime_ready,
+        python_path: python.to_string_lossy().to_string(),
         db_version: state.db.version,
         data_root: state.data_root.to_string_lossy().to_string(),
         webview2_version: None,

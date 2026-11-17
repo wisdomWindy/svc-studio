@@ -34,7 +34,9 @@ pub fn link_pretrain(project_root: &Path, data_root: &Path) -> PretrainLink {
     #[cfg(windows)]
     {
         // mklink /J 不需要管理员权限；symlink_dir 需要开发者模式或提权。
-        let status = std::process::Command::new("cmd")
+        let mut link = std::process::Command::new("cmd");
+        crate::core::proc::hide_console(&mut link);
+        let status = link
             .args(["/C", "mklink", "/J"])
             .arg(&local)
             .arg(&global)

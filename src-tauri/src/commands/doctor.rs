@@ -76,6 +76,7 @@ pub async fn run_doctor(
     f0: &str,
 ) -> AppResult<DoctorReport> {
     let mut cmd = Command::new(python);
+    crate::core::proc::hide_console_async(&mut cmd);
     cmd.args([
         "-m",
         "svc_bridge",

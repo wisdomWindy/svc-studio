@@ -25,6 +25,7 @@ pub async fn run_json_with(
     timeout: Duration,
 ) -> AppResult<Value> {
     let mut cmd = Command::new(python);
+    crate::core::proc::hide_console_async(&mut cmd);
     cmd.args(["-m", "svc_bridge"]);
     cmd.args(args);
     for (k, v) in worker_env(worker_dir) {
@@ -72,6 +73,7 @@ pub async fn run_cli(args: &[&str]) -> AppResult<(Value, Option<i32>)> {
     let python = resolve_python();
     let worker = resolve_worker_dir();
     let mut cmd = Command::new(&python);
+    crate::core::proc::hide_console_async(&mut cmd);
     cmd.args(["-m", "svc_bridge"]);
     cmd.args(args);
     for (k, v) in worker_env(&worker) {

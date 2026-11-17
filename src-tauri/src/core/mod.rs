@@ -9,6 +9,7 @@ pub mod ids;
 pub mod job_state;
 pub mod model;
 pub mod models;
+pub mod proc;
 pub mod repo;
 pub mod runner;
 pub mod runtime;

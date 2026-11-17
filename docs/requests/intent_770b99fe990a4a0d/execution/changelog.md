@@ -1228,3 +1228,31 @@ Error failed to bundle app with makensis
 ### 质量门
 
 cargo test 109 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 消除黑色命令窗口
+
+### 根因
+
+Windows 上控制台子系统程序（python.exe / cmd.exe / tar.exe / nvidia-smi）被父进程以默认方式创建时，
+系统会为它分配一个控制台窗口——用户看到的就是一闪而过的黑框。
+应用里有 7 处 Rust spawn + 5 处 Python subprocess，全都没设 `CREATE_NO_WINDOW`。
+
+### 修复
+
+- 新增 `core/proc.rs`：`hide_console` / `hide_console_async`（`CREATE_NO_WINDOW = 0x08000000`），2 条单测；
+- 覆盖 7 个 Rust spawn 点：worker 宿主、doctor、worker CLI、tar 解压、nvidia-smi、tasklist、mklink；
+- 新增 `worker/svc_bridge/procwin.py`：`no_window_kwargs()`，覆盖 5 个 Python subprocess 点
+  （extras / modeltool / preprocess / train 的 Popen 与 taskkill）；
+- 诊断开关 `SVCSTUDIO_DOCTOR_ON_START=1`：启动即拉起一次 worker doctor，便于自动化验证子进程行为；
+- 顺带修掉设置页「运行时：未就绪」的误报：`bootstrap` 现在真的用内置解释器读版本号（隐藏控制台）。
+
+### 实测
+
+| 场景 | 结果 |
+| --- | --- |
+| 启动 20 秒（触发 tasklist 对账） | 可见控制台窗口数 **0** |
+| 启动 + 拉起 worker doctor（`SVCSTUDIO_DOCTOR_ON_START=1`） | worker 进程确实出现，控制台窗口数 **0** |
+
+### 质量门
+
+cargo test 111 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。

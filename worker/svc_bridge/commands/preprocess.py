@@ -166,7 +166,14 @@ def run_chain(
         if runner is None:
             import subprocess
 
-            code = subprocess.run(step["argv"], cwd=str(step["cwd"]), env={**os.environ, **env}).returncode
+            from ..procwin import no_window_kwargs
+
+            code = subprocess.run(
+                step["argv"],
+                cwd=str(step["cwd"]),
+                env={**os.environ, **env},
+                **no_window_kwargs(),
+            ).returncode
         else:
             code = runner(step["argv"], step["cwd"], env)
         finished = _now()

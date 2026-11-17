@@ -45,9 +45,12 @@ def run_aux(
         return {"kind": kind, "ok": False, "error": f"unsupported kind {kind}"}
     started = time.time()
     argv = build_argv(upstream, kind, python)
+    from ..procwin import no_window_kwargs
+
     proc = subprocess.run(
         argv,
         cwd=project,
+        **no_window_kwargs(),
         capture_output=True,
         text=True,
         encoding="utf-8",

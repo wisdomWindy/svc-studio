@@ -62,10 +62,13 @@ def build_argv(
 def _kill_tree(proc: "subprocess.Popen[str]") -> None:
     """终止训练进程及其派生进程。Windows 用 taskkill /T，其它平台直接 kill。"""
     if platform.system() == "Windows":
+        from ..procwin import no_window_kwargs
+
         subprocess.run(
             ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
             capture_output=True,
             check=False,
+            **no_window_kwargs(),
         )
         return
     proc.kill()
@@ -142,9 +145,12 @@ def run_train(
 
     send({"kind": "stage", "stage": kind, "message": f"启动训练：{' '.join(argv)}"})
     started = time.time()
+    from ..procwin import no_window_kwargs
+
     proc = subprocess.Popen(
         argv,
         cwd=str(project_path),
+        **no_window_kwargs(),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

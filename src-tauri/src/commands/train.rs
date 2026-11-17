@@ -70,7 +70,9 @@ fn project_root(state: &AppPaths, project_id: &str) -> AppResult<PathBuf> {
 }
 
 pub fn detect_vram_mb() -> Option<u64> {
-    let output = std::process::Command::new("nvidia-smi")
+    let mut probe = std::process::Command::new("nvidia-smi");
+    crate::core::proc::hide_console(&mut probe);
+    let output = probe
         .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
         .output()
         .ok()?;

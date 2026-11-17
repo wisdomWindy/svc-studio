@@ -157,6 +157,7 @@ impl Drop for RunningJob {
 
 pub fn spawn(spec: SpawnSpec) -> AppResult<RunningJob> {
     let mut cmd = Command::new(&spec.program);
+    crate::core::proc::hide_console_async(&mut cmd);
     cmd.args(&spec.args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

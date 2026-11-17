@@ -63,8 +63,16 @@ def run_compress(
 ) -> Dict[str, Any]:
     started = time.time()
     argv = build_compress_argv(upstream, config_path, input_model, output_model, half, python)
+    from ..procwin import no_window_kwargs
+
     proc = subprocess.run(
-        argv, cwd=project, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        argv,
+        cwd=project,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **no_window_kwargs(),
     )
     out = Path(project) / output_model if not Path(output_model).is_absolute() else Path(output_model)
     result = {
