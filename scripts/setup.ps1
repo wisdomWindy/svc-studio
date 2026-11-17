@@ -15,8 +15,15 @@ Set-Location $root
 function Write-Step($text) { Write-Host "==> $text" -ForegroundColor Cyan }
 
 # ---------- 数据根 ----------
+# 数据根：环境变量 > 已有指针 > 仓库根（开发自包含；不写指针，避免影响已安装的正式版）
 $pointer = Join-Path $env:LOCALAPPDATA "svc-studio\data-root.txt"
-$dataRoot = if (Test-Path $pointer) { (Get-Content $pointer -Raw).Trim() } else { Join-Path $env:USERPROFILE "SVCStudio" }
+if ($env:SVCSTUDIO_DATA_ROOT) {
+  $dataRoot = $env:SVCSTUDIO_DATA_ROOT
+} elseif (Test-Path $pointer) {
+  $dataRoot = (Get-Content $pointer -Raw).Trim()
+} else {
+  $dataRoot = $root
+}
 Write-Step "数据目录：$dataRoot"
 New-Item -ItemType Directory -Force -Path $dataRoot | Out-Null
 

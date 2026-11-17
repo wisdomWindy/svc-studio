@@ -22,7 +22,7 @@ pnpm run tauri dev    # 打开桌面窗口
 `pnpm run setup` 做的事：
 
 1. 数据目录默认 `%USERPROFILE%\SVCStudio`（可用 `SVCSTUDIO_DATA_ROOT` 覆盖）；
-2. 构建内置运行时到 `runtime/`：Python 3.13 embeddable + torch 2.8.0+cu128 + 训练依赖 + fairseq-fixed；
+2. 构建内置运行时到 `runtime/`：Python 3.13 embeddable + torch 2.8.0+cu128 + 训练依赖 + fairseq-fixed + demucs（下载约 4GB，解压后约 7.7GB，需要磁盘 ≥12GB）；
 3. 下载权重到 `<数据目录>/pretrain`：ContentVec、RMVPE、NSF-HiFiGAN（来自 hf-mirror）；
 4. 用内置运行时跑 `doctor`，告诉你还缺什么；5. 真发一次 CUDA kernel，明确告诉你 **GPU 是否可用**（能训练 / 只能 CPU 推理）。
 

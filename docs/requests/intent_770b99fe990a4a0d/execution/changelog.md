@@ -1943,3 +1943,39 @@ cargo test 121 / pytest 110 / vitest 38 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 121 / pytest 110 / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 运行时改为「clone 后本地构建」，并实测通过
+
+### 目标
+
+不托管 3.5GB 运行时包，让 clone 的人自己跑 `pnpm run setup` 构建。
+
+### 修复（前置条件）
+
+`build-runtime.ps1` 里仓库根路径是**硬编码**的：
+`$root = "D:\study\engineer_knowledge_system\..."` —— 别人机器上跑必然失败。
+改为从 `$PSScriptRoot` 推导，并补：
+
+- 磁盘检查（<12GB 直接报错，说明需要 4GB 下载 + 7.6GB 解压）；
+- `curl.exe` 存在性检查；
+- DryRun 打印仓库根 / 输出目录 / 磁盘剩余；
+- 结束时提示下一步（`pnpm run setup` → `pnpm run tauri dev`）。
+
+`error.rs` 增加开发布局识别：exe 在 `target/debug|release` 且仓库根同时有
+`runtime/python.exe` 与 `pretrain/` 时，数据根 = 仓库根（开发自包含，不再往 `target/debug` 写数据）。
+`setup.ps1` 不再写数据根指针（避免影响已安装的正式版）。
+
+### 实测（模拟 fresh clone）
+
+```
+pnpm run setup
+→ 下载 Python 3.13.7 + torch 2.8.0+cu128 + 依赖 + demucs 权重
+→ runtime/ 7.73 GB
+→ GPU 检查：NVIDIA GeForce RTX 5060 Ti（16283MB，sm 12.0），kernel 0.05ms
+→ 训练可用 / 推理 GPU 加速
+repo runtime: 3.13.7 2.8.0+cu128 cuda True
+```
+
+### 质量门
+
+cargo test 121 / pytest 110 / vitest 38 / clippy 0 / `check.ps1` PASS。

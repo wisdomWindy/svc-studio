@@ -2,8 +2,17 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = "Stop"
-$root = "D:\study\engineer_knowledge_system\project\real-project\voice-generator"
+$root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+
+# 前置检查：磁盘与网络工具
+$freeGb = [math]::Round((Get-PSDrive -Name ([System.IO.Path]::GetPathRoot($root).TrimEnd(":\"))).Free / 1GB, 1)
+if (-not $DryRun -and $freeGb -lt 12) {
+  throw "磁盘剩余 $freeGb GB，构建运行时需要至少 12GB（下载 4GB + 解压 7.6GB）"
+}
+if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
+  throw "找不到 curl.exe；Windows 10 1803+ 自带，请确认系统版本"
+}
 
 $out = "runtime"
 $pyVer = "3.13.7"
@@ -16,7 +25,9 @@ $audioWheelUrl = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torchaudio-2.8
 
 if ($DryRun) {
   Write-Host "计划：下载 Python 3.13.7 embeddable + torch 2.8.0+cu128（3.3GB）+ 依赖 + fairseq-fixed" -ForegroundColor Cyan
-  Write-Host "     输出目录：$out；预计 7.6GB；耗时 5–10 分钟"
+  Write-Host "     仓库根目录：$root"
+  Write-Host "     输出目录：$(Join-Path $root $out)；预计 7.6GB；耗时 5–10 分钟"
+  Write-Host "     磁盘剩余：$freeGb GB（需要 ≥12GB）"
   Write-Host "DryRun 完成：未下载、未写入。" -ForegroundColor Green
   exit 0
 }
@@ -120,3 +131,4 @@ if ($LASTEXITCODE -ne 0) { throw "GPU 运行时自检失败" }
 
 $sizeGb = [math]::Round((Get-ChildItem -Recurse -File $out | Measure-Object Length -Sum).Sum / 1GB, 2)
 Write-Host "==> 完成：$out（$sizeGb GB）"
+Write-Host "下一步：pnpm run setup（安装权重）→ pnpm run tauri dev" -ForegroundColor Green

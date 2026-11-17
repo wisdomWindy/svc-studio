@@ -108,9 +108,30 @@ pub fn data_root() -> AppResult<PathBuf> {
     })?;
     let env_value = std::env::var(crate::infra::dataroot::DATA_ROOT_ENV).ok();
     let pointer = crate::infra::dataroot::read_pointer();
-    let install_dir = std::env::current_exe()
+    let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf));
+
+    // 开发布局（cargo 产物在 target/debug）：仓库根同时有 runtime/ 与 pretrain/ 时，
+    // 直接把它当数据根，避免开发时数据跑到 target/debug 里。
+    if let Some(dir) = exe_dir.as_deref() {
+        if dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n == "debug" || n == "release")
+            == Some(true)
+        {
+            if let Some(project_root) = dir.parent().and_then(|p| p.parent()) {
+                if project_root.join("runtime").join("python.exe").is_file()
+                    && project_root.join("pretrain").is_dir()
+                {
+                    return Ok(project_root.to_path_buf());
+                }
+            }
+        }
+    }
+
+    let install_dir = exe_dir;
     Ok(crate::infra::dataroot::pick_data_root_with(
         env_value.as_deref(),
         pointer.as_deref(),
