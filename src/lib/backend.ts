@@ -103,6 +103,11 @@ export const backend = {
 
   listDatasets: (projectId: string) =>
     call<DatasetSummary[]>("list_datasets", { projectId }),
+  datasetImport: (projectId: string, paths: string[]) =>
+    call<{ imported: number; skipped: number; rejected: number; targetDir: string }>(
+      "dataset_import",
+      { projectId, paths },
+    ),
   datasetScan: (projectId: string) =>
     call<Record<string, unknown>>("dataset_scan", { projectId }),
   datasetQc: (projectId: string) =>

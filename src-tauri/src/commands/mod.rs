@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod bootstrap;
 pub mod dataset;
+pub mod dataset_import;
 pub mod datasets;
 pub mod diagnostics;
 pub mod doctor;

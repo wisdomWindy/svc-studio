@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { backend } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { formatDuration, statusLabel } from "@/lib/format";
+import { DatasetDropZone } from "./DatasetDropZone";
 
 interface QcMetrics {
   duration?: { min: number; p50: number; p95: number; max: number };
@@ -27,6 +28,29 @@ export function DatasetPage() {
   const [scan, setScan] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importNote, setImportNote] = useState<string | null>(null);
+
+  async function handleImport(paths: string[]) {
+    if (!project) return;
+    setBusy("import");
+    setError(null);
+    setImportNote(null);
+    try {
+      const result = await backend.datasetImport(project.id, paths);
+      const parts = [`已导入 ${result.imported} 个文件`];
+      if (result.skipped > 0) parts.push(`跳过 ${result.skipped} 个重复`);
+      if (result.rejected > 0) parts.push(`忽略 ${result.rejected} 个非音频`);
+      setImportNote(parts.join("，"));
+      // 导入后自动刷新结构扫描与 QC，省一次点击
+      const scanned = await backend.datasetScan(project.id);
+      setScan(scanned);
+      setQc(await backend.datasetQc(project.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function run<T>(label: string, fn: () => Promise<T>, apply: (value: T) => void) {
     if (!project) return;
@@ -74,6 +98,19 @@ export function DatasetPage() {
       />
 
       {error && <ErrorNotice error={error} compact />}
+
+      <DatasetDropZone
+        disabled={!!busy}
+        busy={busy === "import"}
+        onImport={(paths) => void handleImport(paths)}
+      />
+
+      {importNote && (
+        <p className="mt-2 text-[12px] text-ok">
+          {importNote}
+          <span className="ml-1 text-muted">（已刷新结构扫描与 QC）</span>
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[

@@ -61,6 +61,11 @@ pub struct QcReport {
     pub schema: String,
     pub generated_at: String,
     pub summary: QcSummary,
+    /// 指标是 worker 产出的动态结构，直接透传给前端，避免再定义一套同构类型。
+    #[serde(default)]
+    pub metrics: Option<serde_json::Value>,
+    #[serde(default)]
+    pub scan: Option<serde_json::Value>,
     pub files: Vec<QcFile>,
     pub assertions: QcAssertions,
 }
@@ -368,4 +373,41 @@ mod tests {
         assert!((seconds - 1.0).abs() < 0.05, "时长 {seconds}");
         let _ = std::fs::remove_dir_all(base);
     }
+}
+
+/// 把用户从资源管理器选中的文件/目录复制进项目的受管目录。
+#[tauri::command]
+pub async fn dataset_import(
+    state: State<'_, AppPaths>,
+    project_id: String,
+    paths: Vec<String>,
+) -> AppResult<serde_json::Value> {
+    let project = state
+        .db
+        .with(|c| crate::core::repo::projects::get(c, &project_id))?
+        .ok_or_else(|| Box::new(AppError::new("SVC-7004", "项目不存在", project_id.clone())))?;
+    let raw = dataset_raw(Path::new(&project.root_path));
+    let target = crate::commands::dataset_import::speaker_dir(&raw, project.speaker.as_deref());
+
+    let input: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
+    if input.is_empty() {
+        return Err(Box::new(AppError::new(
+            "SVC-4002",
+            "没有选择任何文件",
+            "请选择音频文件或包含音频的文件夹",
+        )));
+    }
+
+    let (sources, rejected) = crate::commands::dataset_import::collect_sources(&input);
+    if sources.is_empty() {
+        return Err(Box::new(AppError::new(
+            "SVC-4002",
+            "没有可导入的音频",
+            format!("{rejected} 个文件扩展名不受支持（支持 wav/flac/mp3/m4a/aac/ogg/opus/wma）"),
+        )));
+    }
+
+    let mut outcome = crate::commands::dataset_import::import_files(&sources, &target)?;
+    outcome.rejected = rejected;
+    Ok(serde_json::to_value(outcome).unwrap_or(serde_json::Value::Null))
 }

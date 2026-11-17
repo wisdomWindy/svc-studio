@@ -1256,3 +1256,29 @@ Windows 上控制台子系统程序（python.exe / cmd.exe / tar.exe / nvidia-sm
 ### 质量门
 
 cargo test 111 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 数据集导入：按钮开资源管理器 + 拖拽上传
+
+### 新增
+
+- `commands/dataset_import.rs`：`collect_sources`（递归收集音频、统计被拒）、`import_files`（同名同大小跳过、同名不同大小加序号、绝不覆盖）、`speaker_dir`（说话人目录回落 `spk`），3 条单测；
+- `dataset_import` 命令：把选中的文件/目录复制进 `<project>/dataset_raw/<说话人>/`，返回 `imported/skipped/rejected/targetDir`；
+- 前端 `DatasetDropZone`：虚线区域 + 「选择音频文件」「选择文件夹」两个按钮，同时监听 Tauri `onDragDropEvent` 支持直接拖入；
+- 导入完成后自动刷新结构扫描与 QC，并显示「已导入 N 个文件（跳过 M 个重复，忽略 K 个非音频）」。
+
+### 顺带修的 bug
+
+`QcReport` 结构体漏了 `metrics` 字段，serde 反序列化时把它丢了，导致界面「静音比 / 削波比」永远显示 `—`。
+改为透传 `serde_json::Value` 后，实测显示 `0.0%` / `0.000%`。
+
+### 实测（真机）
+
+| 步骤 | 结果 |
+| --- | --- |
+| 点「选择音频文件」 | 打开资源管理器（原生对话框） |
+| 选中 12s wav 导入 | 复制到 `dataset_raw/qingqingzi/a0.wav`，提示「已导入 1 个文件」 |
+| 自动 QC | 总时长 12 秒 / 文件数 1 / 静音比 0.0% / 削波比 0.000%，门禁「通过」并给出 SVC-3004 低数据量警告 |
+
+### 质量门
+
+cargo test 114 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
