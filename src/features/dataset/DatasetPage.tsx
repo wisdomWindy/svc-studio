@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +30,44 @@ export function DatasetPage() {
   const [error, setError] = useState<string | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
   const [separateVocals, setSeparateVocals] = useState(true);
+
+  // 切换选中项目时自动加载它的数据集状态，不需要用户再点一次「结构扫描」
+  useEffect(() => {
+    if (!project) {
+      setScan(null);
+      setQc(null);
+      return;
+    }
+    const id = project.id;
+    let cancelled = false;
+    setScan(null);
+    setQc(null);
+    setError(null);
+    setImportNote(null);
+
+    void (async () => {
+      try {
+        const scanned = await backend.datasetScan(id);
+        if (cancelled) return;
+        setScan(scanned as Record<string, unknown>);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      try {
+        const report = await backend.datasetQc(id);
+        if (!cancelled) setQc(report as QcReport);
+      } catch {
+        // 数据集为空时 QC 会报「还没有可质检的数据集」，这属于正常空态，不弹错误
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // 只在项目变化时重新加载
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
 
   async function handleImport(paths: string[]) {
     if (!project) return;

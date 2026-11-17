@@ -1533,3 +1533,29 @@ cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 数据集页跟随选中项目自动加载
+
+### 问题
+
+切换/选中项目后进入数据集页，指标全是「—」，必须手动点「结构扫描」才出数据。
+
+### 改动
+
+`DatasetPage` 增加 `useEffect([project?.id])`：项目变化时自动
+- 清空旧扫描/QC（避免显示上一个项目的数据）；
+- 调 `dataset_scan` 载入结构；
+- 再调 `dataset_qc` 载入指标；QC 因空数据集报错时静默（正常空态）。
+
+带 `cancelled` 标记，快速切换项目时不会把旧请求的结果写进来。
+
+### 实测（debug 构建，共用数据根）
+
+| 操作 | 结果 |
+| --- | --- |
+| 进入数据集页（qingqingzi 为当前项目） | 自动显示 总时长 30 秒 / 文件数 5 / 静音比 16.3% / 削波比 0.000% / 门禁通过 |
+| 切到 qq（空项目）再进数据集页 | 自动显示 文件数 0、`SVC-3002 没有任何说话人目录`，**不残留**上一个项目的 5 个文件 |
+
+### 质量门
+
+cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
