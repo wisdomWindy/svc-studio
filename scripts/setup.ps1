@@ -73,6 +73,28 @@ if (Test-Path $runtimePython) {
   Write-Host "    跳过自检：没有内置运行时"
 }
 
+Write-Step "GPU 可用性"
+if (Test-Path $runtimePython) {
+  $gpuJson = & $runtimePython "scripts\check_gpu.py" 2>$null | Select-Object -Last 1
+  try {
+    $gpu = $gpuJson | ConvertFrom-Json
+    if ($gpu.ok) {
+      Write-Host ("    可用：{0}（{1}MB，sm {2}），512x512 矩阵乘 {3} ms" -f $gpu.device, $gpu.vram_mb, $gpu.sm, $gpu.matmul_ms) -ForegroundColor Green
+      Write-Host "    训练：可用；推理：GPU 加速"
+    } elseif ($gpu.cuda -eq $true) {
+      Write-Host ("    检测到 CUDA 设备但无法执行 kernel：{0}" -f $gpu.error) -ForegroundColor Yellow
+      Write-Host "    训练不可用；推理会回落 CPU"
+    } else {
+      Write-Host ("    未检测到可用的 CUDA：{0}" -f $gpu.reason) -ForegroundColor Yellow
+      Write-Host "    训练不可用；推理走 CPU（较慢）"
+    }
+  } catch {
+    Write-Host "    无法解析 GPU 检查结果" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host "    跳过：没有内置运行时"
+}
+
 Write-Host "`n准备完成。" -ForegroundColor Green
 Write-Host "  启动开发：pnpm run dev         （浏览器预览，无后端）"
 Write-Host "             pnpm run tauri dev   （桌面窗口）"
