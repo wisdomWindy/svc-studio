@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { backend, type BootstrapInfo, type DoctorReport } from "@/lib/backend";
+import { toErrorText } from "@/lib/errors";
 
 const TONE: Record<string, string> = {
   pass: "text-ok",
@@ -39,7 +40,7 @@ export function SettingsPage() {
     try {
       setDoctor(await backend.doctorReport());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(false);
     }
@@ -52,7 +53,7 @@ export function SettingsPage() {
       const result = await backend.exportDiagnostics();
       setMessage(`诊断包已生成：${String(result.path ?? "")}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(false);
     }

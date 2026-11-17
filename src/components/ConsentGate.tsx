@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { backend } from "@/lib/backend";
 import { Button } from "@/components/ui/Button";
+import { toErrorText } from "@/lib/errors";
 
 const ITEMS: Array<{ kind: string; title: string; body: string }> = [
   {
@@ -60,7 +61,7 @@ export function ConsentGate({ onComplete }: { onComplete: () => void }) {
         setError("确认未全部记录，请重试");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(false);
     }

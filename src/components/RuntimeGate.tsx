@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { backend } from "@/lib/backend";
 import { Button } from "@/components/ui/Button";
 import { isTauri } from "@/lib/api";
+import { toErrorText } from "@/lib/errors";
 
 interface Status {
   ready: boolean;
@@ -46,7 +47,7 @@ export function RuntimeGate({ onReady }: { onReady: () => void }) {
         setError("解压完成但没有找到可用的 python.exe");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(false);
     }
@@ -61,7 +62,7 @@ export function RuntimeGate({ onReady }: { onReady: () => void }) {
       });
       if (typeof picked === "string") await install(picked);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     }
   }
 

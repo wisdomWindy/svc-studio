@@ -4,6 +4,7 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { backend } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
+import { toErrorText } from "@/lib/errors";
 
 interface Manifest {
   passed?: boolean;
@@ -76,7 +77,7 @@ export function PreprocessPage() {
       const job = await backend.preprocessStart(project.id, { useDiff, numProcesses: 1 });
       setMessage(`已提交任务 ${job}，可在「任务」页查看进度`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(false);
     }
@@ -88,7 +89,12 @@ export function PreprocessPage() {
     try {
       setAssertion(await backend.configAssert(project.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // 还没跑过预处理时没有 config.json，这属于正常空态，不该弹红色错误
+      if (!manifest) {
+        setMessage("还没有生成配置：先点「开始预处理」跑完三步，再检查配置。");
+        return;
+      }
+      setError(toErrorText(e));
     }
   }
 

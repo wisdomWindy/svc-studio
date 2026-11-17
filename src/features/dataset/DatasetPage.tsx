@@ -6,6 +6,7 @@ import { backend } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { formatDuration, statusLabel } from "@/lib/format";
 import { DatasetDropZone } from "./DatasetDropZone";
+import { toErrorText } from "@/lib/errors";
 
 interface QcMetrics {
   duration?: { min: number; p50: number; p95: number; max: number };
@@ -51,7 +52,7 @@ export function DatasetPage() {
         if (cancelled) return;
         setScan(scanned as Record<string, unknown>);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setError(toErrorText(e));
         return;
       }
       try {
@@ -94,7 +95,7 @@ export function DatasetPage() {
       setScan(scanned);
       setQc(await backend.datasetQc(project.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(null);
     }
@@ -107,7 +108,7 @@ export function DatasetPage() {
     try {
       apply(await fn());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(null);
     }

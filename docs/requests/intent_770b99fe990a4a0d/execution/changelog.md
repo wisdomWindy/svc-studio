@@ -1578,3 +1578,24 @@ cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 修复预处理页 `[object Object]` 错误提示
+
+### 根因
+
+后端抛的是结构化 `AppError { code, message, cause, nextAction... }`，
+页面里用 `e instanceof Error ? e.message : String(e)`，对象被 `String()` 成 `[object Object]`。
+9 个页面都有这个写法，只是预处理页先被触发。
+
+### 修复
+
+- 新增 `src/lib/errors.ts`：`toErrorText()` 支持 `AppError` / `Error` / 字符串 / 任意值，
+  输出形如 `[SVC-3005] config.json 不存在 —— 先跑一次预处理`；
+- 全仓 12 个文件统一改用 `toErrorText()`（ConsentGate / RuntimeGate / 数据集 / 预处理 /
+  推理 / 模型库 / 设置 / 任务 / 训练 / api / hooks）；
+- 预处理页「检查配置」在还没有 manifest 时改为友好提示「还没有生成配置：先跑预处理」，
+  不再抛红色错误。
+
+### 质量门
+
+cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。

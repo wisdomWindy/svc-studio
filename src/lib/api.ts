@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { AppError } from "@/types";
+import { toErrorText } from "./errors";
 
 /** IPC 的唯一出口：超时、错误归一、dev 日志。业务代码不得直接 invoke。 */
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -12,7 +13,7 @@ function toAppError(e: unknown, command: string): AppError {
   if (typeof e === "object" && e !== null && "code" in e && "message" in e) {
     return e as AppError;
   }
-  const message = e instanceof Error ? e.message : String(e);
+  const message = toErrorText(e);
   return {
     code: "SVC-7002",
     severity: "fatal",

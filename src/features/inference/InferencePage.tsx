@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { backend } from "@/lib/backend";
 import { useActiveProject, useAppStore } from "@/lib/store";
 import { statusLabel } from "@/lib/format";
+import { toErrorText } from "@/lib/errors";
 
 const F0 = ["rmvpe", "fcpe", "crepe", "harvest", "dio", "pm"];
 
@@ -88,7 +89,7 @@ export function InferencePage() {
       const job = await backend.inferStart(project.id, modelId, inputs, params, null, "batch");
       setMessage(`推理已提交：${job}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(false);
     }
@@ -184,7 +185,7 @@ export function InferencePage() {
                         void backend
                           .inferBatchReport(project.id, String(batch.name))
                           .then(setBatchReport)
-                          .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+                          .catch((e) => setError(toErrorText(e)));
                       }}
                     >
                       <div className="flex justify-between gap-2">

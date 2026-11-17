@@ -7,6 +7,7 @@ import { useActiveProject } from "@/lib/store";
 import { formatBytes, statusLabel } from "@/lib/format";
 import { parseLossSeries, sparklinePath } from "@/lib/curve";
 import type { JobEvent } from "@/types";
+import { toErrorText } from "@/lib/errors";
 
 export function TrainingPage() {
   const project = useActiveProject();
@@ -79,7 +80,7 @@ export function TrainingPage() {
       setJobId(id);
       setMessage(`${smoke ? "冒烟" : "训练"}已启动：${id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     } finally {
       setBusy(null);
     }
@@ -91,7 +92,7 @@ export function TrainingPage() {
       await backend.trainStop(jobId);
       setMessage("已请求停止，进度会保留到最近一次 checkpoint");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     }
   }
 
@@ -101,7 +102,7 @@ export function TrainingPage() {
       const result = await backend.registerModel(project.id, checkpoint.path);
       setMessage(`已登记 ${result.model.name}${result.becameDefault ? "（已设为默认）" : ""}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     }
   }
 

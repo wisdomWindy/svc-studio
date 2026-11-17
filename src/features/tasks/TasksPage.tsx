@@ -6,6 +6,7 @@ import { backend } from "@/lib/backend";
 import { formatClock, percent, statusLabel, statusTone } from "@/lib/format";
 import { useActiveProject } from "@/lib/store";
 import type { Job, JobEvent } from "@/types";
+import { toErrorText } from "@/lib/errors";
 
 const TONE: Record<string, string> = {
   ok: "text-ok",
@@ -38,7 +39,7 @@ export function TasksPage() {
         const running = list.find((j) => j.status === "running" || j.status === "queued");
         if (!selected && running) setSelected(running.id);
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(toErrorText(e));
       }
     }
     void tick();
@@ -73,7 +74,7 @@ export function TasksPage() {
       await backend.cancelJob(job.id);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     }
   }
 
@@ -149,7 +150,7 @@ export function TasksPage() {
                             .retryJob(job.id)
                             .then(() => setError(null))
                             .catch((err) =>
-                              setError(err instanceof Error ? err.message : String(err)),
+                              setError(toErrorText(err)),
                             );
                         }}
                       >

@@ -8,6 +8,7 @@ import { backend } from "@/lib/backend";
 import { useActiveProject, useAppStore } from "@/lib/store";
 import { formatBytes, statusLabel, statusTone } from "@/lib/format";
 import type { ModelCard } from "@/types";
+import { toErrorText } from "@/lib/errors";
 
 const TONE: Record<string, string> = {
   ok: "text-ok",
@@ -33,7 +34,7 @@ export function ModelsPage() {
       setModels(list);
       setDefaultId(current);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     }
   }, [setModels]);
 
@@ -78,7 +79,7 @@ export function ModelsPage() {
       const text =
         typeof e === "object" && e && "message" in e
           ? `${(e as { message: string }).message}${(e as { cause?: string }).cause ? `：${(e as { cause?: string }).cause}` : ""}`
-          : String(e);
+          : toErrorText(e);
       setError(text);
     } finally {
       setBusy(false);
@@ -90,7 +91,7 @@ export function ModelsPage() {
       await backend.setDefaultModel(id);
       setDefaultId(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     }
   }
 
@@ -100,7 +101,7 @@ export function ModelsPage() {
       await backend.deleteModel(model.id);
       await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorText(e));
     }
   }
 
@@ -149,7 +150,7 @@ export function ModelsPage() {
                       : `不可混合：${(r.blocking as Array<{ message: string }>).map((b) => b.message).join("；")}`,
                   ),
                 )
-                .catch((e) => setMixResult(e instanceof Error ? e.message : String(e)));
+                .catch((e) => setMixResult(toErrorText(e)));
             }}
           >
             校验混合
@@ -194,7 +195,7 @@ export function ModelsPage() {
                     void backend
                       .compressModel(model.id)
                       .then((r) => setMessage(`已压缩：${String((r.model as { path?: string })?.path ?? "")}`))
-                      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+                      .catch((e) => setError(toErrorText(e)));
                   }}
                 >
                   压缩
@@ -207,7 +208,7 @@ export function ModelsPage() {
                     void backend
                       .modelOnnx(model.id)
                       .then((r) => setMessage(r.ok ? "ONNX 已导出" : `ONNX 失败：${String(r.error ?? "")}`))
-                      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+                      .catch((e) => setError(toErrorText(e)));
                   }}
                 >
                   导出 ONNX

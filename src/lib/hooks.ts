@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { isAppError } from "./api";
 import type { AppError } from "@/types";
+import { toErrorText } from "./errors";
 
 export interface AsyncAction<A extends unknown[], R> {
   run: (...args: A) => Promise<R | undefined>;
@@ -34,7 +35,7 @@ export function useAsyncAction<A extends unknown[], R>(
           setAppError({
             code: "SVC-7002",
             severity: "fatal",
-            message: e instanceof Error ? e.message : String(e),
+            message: toErrorText(e),
             cause: "前端调用后端命令失败",
             nextAction: { label: "重试", deeplink: null },
             detail: null,
