@@ -61,6 +61,7 @@ export interface Recommend {
 }
 
 export interface CheckpointInfo {
+  smoke: boolean;
   step: number;
   bytes: number;
   path: string;

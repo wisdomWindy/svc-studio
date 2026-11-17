@@ -142,6 +142,37 @@ def _min_clip_seconds(dataset_dir: Path) -> float:
     return min(durations) if durations else 0.0
 
 
+def tune_train_config(config_path: Path, eval_interval: int = 200, keep_ckpts: int = 3) -> bool:
+    """把上游默认的稀疏保存点调密一点：用户能更快看到第一个 checkpoint。
+
+    上游默认 eval_interval=800、keep_ckpts=3；在 16GB 卡上 800 步≈7 分钟才有第一个模型，
+    界面看起来像"卡在 0 步"。这里改成 200 步保存一次，保留最近 3 个。
+    """
+    import json
+
+    if not config_path.is_file():
+        return False
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return False
+    train = data.get("train")
+    if not isinstance(train, dict):
+        return False
+    changed = False
+    if train.get("eval_interval") != eval_interval:
+        train["eval_interval"] = eval_interval
+        changed = True
+    if train.get("keep_ckpts") != keep_ckpts:
+        train["keep_ckpts"] = keep_ckpts
+        changed = True
+    if changed:
+        config_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    return changed
+
+
 def ensure_configs_template(project: Path, upstream: Path) -> bool:
     """上游脚本在项目目录下读 `configs_template/`，项目里没有就从上游补一份。"""
     import shutil
@@ -187,6 +218,7 @@ def run_chain(
         # 补模板失败不致命：下一步会给出更具体的错误
         pass
 
+    tuned = False
     failed_step: Optional[str] = None
     for step in steps:
         started = _now()
@@ -217,6 +249,8 @@ def run_chain(
         if code != 0:
             failed_step = step["name"]
             break
+        if step["name"] == "flist_config":
+            tuned = tune_train_config(project_path / "configs" / "config.json")
 
     dataset_dir = _dataset_dir(project_path)
     counts = count_products(dataset_dir)

@@ -99,6 +99,8 @@ pub struct CheckpointInfo {
     pub bytes: u64,
     pub path: String,
     pub modified: String,
+    /// 冒烟产物（logs/_smoke）：可续训但不宜登记为正式模型。
+    pub smoke: bool,
 }
 
 #[tauri::command]
@@ -127,6 +129,7 @@ pub fn train_checkpoints(
                 .parse::<u64>()
                 .unwrap_or(0);
             let meta = entry.metadata().ok();
+            let smoke = path.to_string_lossy().contains("logs/_smoke");
             out.push(CheckpointInfo {
                 step,
                 bytes: meta.as_ref().map(|m| m.len()).unwrap_or(0),
@@ -138,6 +141,7 @@ pub fn train_checkpoints(
                             .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
                     })
                     .unwrap_or_default(),
+                smoke,
             });
         }
     }

@@ -1733,3 +1733,31 @@ cargo test **121** / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 121 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 训练页 checkpoint 不再"永远 0 步"
+
+### 三个原因
+
+1. **checkpoint 列表只在作业启动时刷新一次**：`useEffect([project?.id, jobId])`，
+   开跑瞬间只有 `G_0`，之后再也不更新；
+2. **上游默认保存太稀疏**：`eval_interval=800`，16GB 卡约 7 分钟才有第一个模型，
+   界面看起来一直停在 0 步；
+3. **当前步数没展示**：作业 `step/total` 已入库，但状态行只写"运行中"。
+
+### 修复
+
+- 训练运行中每 3 秒刷新 `train_checkpoints`（并停跑后保留最后结果）；
+- 预处理完成后把 `configs/config.json` 的 `eval_interval` 调为 **200**、`keep_ckpts` 调为 **3**，
+  第一个 checkpoint 约 2 分钟出现；
+- 状态行新增 **「当前步数 N / 100」** 与 **「下一个保存点 M 步」**；
+- 冒烟产物（`logs/_smoke`）标注「冒烟」徽标，并隐藏「登记为模型」（避免误把冒烟模型当正式模型）；
+- `CheckpointInfo` 增加 `smoke` 字段。
+
+### 实测
+
+重跑预处理后 `configs/config.json`：`eval_interval=200`、`keep_ckpts=3`，
+三步全部通过，计数 5/5/5/5。
+
+### 质量门
+
+cargo test 121 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。

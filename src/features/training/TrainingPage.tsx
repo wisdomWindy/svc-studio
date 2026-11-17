@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +21,10 @@ export function TrainingPage() {
   const [error, setError] = useState<string | null>(null);
   const [gpuBusy, setGpuBusy] = useState(false);
   const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ step: number | null; total: number | null }>({
+    step: null,
+    total: null,
+  });
 
   useEffect(() => {
     const tick = () => void backend.gpuBusy().then(setGpuBusy).catch(() => setGpuBusy(false));
@@ -57,6 +61,7 @@ export function TrainingPage() {
         setEvents(page.events);
         // 只有 running/queued 才算"正在训练"，完成后按钮要变回来
         setRunning(job?.status === "running" || job?.status === "queued");
+        setProgress({ step: job?.step ?? null, total: job?.total ?? null });
       } catch {
         // 轮询失败不打断界面
       }
@@ -70,8 +75,25 @@ export function TrainingPage() {
     };
   }, [jobId]);
 
+  const refreshCheckpoints = useCallback(async () => {
+    if (!project) return;
+    try {
+      const list = await backend.trainCheckpoints(project.id);
+      setCheckpoints(list);
+    } catch {
+      /* 扫描失败不打断界面 */
+    }
+  }, [project]);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => void refreshCheckpoints(), 3000);
+    return () => clearInterval(id);
+  }, [running, refreshCheckpoints]);
+
   useEffect(() => {
     setCheckpoints([]);
+    setProgress({ step: null, total: null });
     if (!project) return;
     let cancelled = false;
     void backend
@@ -229,13 +251,20 @@ export function TrainingPage() {
               )}
               {checkpoints.map((checkpoint) => (
                 <tr key={checkpoint.path} className="border-t border-line/60">
-                  <td className="px-3 py-1.5 tabular">{checkpoint.step} 步</td>
+                  <td className="px-3 py-1.5 tabular">
+                      {checkpoint.step} 步
+                      {checkpoint.smoke && (
+                        <span className="ml-1 rounded bg-raised px-1 py-0.5 text-[10px] text-muted">冒烟</span>
+                      )}
+                    </td>
                   <td className="px-3 py-1.5 tabular text-muted">{formatBytes(checkpoint.bytes)}</td>
                   <td className="px-3 py-1.5 text-muted">{checkpoint.modified}</td>
                   <td className="px-3 py-1.5 text-right">
+                    {!checkpoint.smoke && (
                     <Button size="sm" onClick={() => void register(checkpoint)}>
                       登记为模型
                     </Button>
+                  )}
                   </td>
                 </tr>
               ))}
@@ -265,7 +294,13 @@ export function TrainingPage() {
       })()}
 
       <p className="mt-3 text-[11px] text-muted">
-        当前状态：{statusLabel(jobId ? (running ? "running" : "succeeded") : "queued")}
+        当前状态：{running ? "运行中" : statusLabel(jobId ? "succeeded" : "queued")}
+          {progress.step != null && (
+            <span className="ml-2 text-muted">下一个保存点 <span className="tabular">{Math.ceil(((progress.step ?? 0) + 1) / 200) * 200}</span> 步</span>
+          )}
+          {progress.step != null && (
+            <span className="ml-2 text-muted">当前步数 <span className="tabular text-ink">{progress.step}</span>{progress.total ? ` / ${progress.total}` : ""}</span>
+          )}
         {jobId ? ` · 任务 ${jobId}` : ""} · 冒烟产物在 logs/_smoke，不会污染正式模型目录。
       </p>
     </>
