@@ -170,12 +170,16 @@ export function OverviewPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {projects.map((project) => (
-            <button
+            <div
               key={project.id}
-              title={`打开 ${project.name} 的项目目录`}
-              onClick={() => {
-                selectProject(project.id);
-                void backend.projectOpenDir(project.id).catch(() => undefined);
+              role="button"
+              tabIndex={0}
+              onClick={() => selectProject(project.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  selectProject(project.id);
+                }
               }}
               className={`rounded-lg border p-3.5 text-left transition-colors ${
                 project.id === activeProjectId
@@ -194,27 +198,29 @@ export function OverviewPage() {
                 <span>{project.materialType === "singing" ? "歌声" : "语音"}</span>
                 <span>{formatClock(project.createdAt)}</span>
               </div>
-              <div className="mt-1 text-[10px] text-muted">点击卡片打开项目目录</div>
-              <div className="mt-2 flex justify-end">
-                <span
-                  role="button"
-                  tabIndex={0}
+              <div className="mt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  className="rounded px-1.5 py-0.5 text-[11px] text-muted hover:text-accent"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void backend.projectOpenDir(project.id).catch(() => undefined);
+                  }}
+                >
+                  打开项目
+                </button>
+                <button
+                  type="button"
                   className="rounded px-1.5 py-0.5 text-[11px] text-muted hover:text-danger"
                   onClick={(e) => {
                     e.stopPropagation();
                     void del(project.id, project.name);
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.stopPropagation();
-                      void del(project.id, project.name);
-                    }
-                  }}
                 >
                   删除
-                </span>
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

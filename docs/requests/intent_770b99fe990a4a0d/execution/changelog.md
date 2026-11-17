@@ -1512,3 +1512,24 @@ cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 项目卡片：点击只选中，「打开项目」按钮才开目录
+
+### 改动
+
+- 卡片本体从 `<button>` 改为 `role="button"` 的 `<div>`：点击/回车只 `selectProject`，不再打开资源管理器；
+- 卡片右下角新增 **「打开项目」** 按钮（`stopPropagation`），调用 `project_open_dir`；
+- 移除旧提示「点击卡片打开项目目录」。
+
+### 实测
+
+| 操作 | 结果 |
+| --- | --- |
+| 点击卡片空白处 | 选中状态切换，资源管理器窗口数 11 → **11**（未打开） |
+| 卡片上的「打开项目」/「删除」 | 两个按钮独立存在，互不影响卡片选中 |
+
+（`project_open_dir` 命令此前已实测能打开对应目录，本次只调整触发入口。）
+
+### 质量门
+
+cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
