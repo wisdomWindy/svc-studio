@@ -1,13 +1,25 @@
 ﻿# 构建 GPU 运行时（Python 3.13 + torch 2.8 cu128 + fairseq-fixed）
+param([switch]$DryRun)
+
 $ErrorActionPreference = "Stop"
 $root = "D:\study\engineer_knowledge_system\project\real-project\voice-generator"
 Set-Location $root
 
-$out = "runtime_gpu"
+$out = "runtime"
 $pyVer = "3.13.7"
 $embedUrl = "https://mirrors.huaweicloud.com/python/$pyVer/python-$pyVer-embed-amd64.zip"
 $pipIndex = "https://pypi.tuna.tsinghua.edu.cn/simple"
-$wheelDir = "D:\program\svcstudio\tmp\wheels"
+$wheelDir = Join-Path $env:TEMP "svcstudio-wheels"
+New-Item -ItemType Directory -Force -Path $wheelDir | Out-Null
+$torchWheelUrl = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.8.0%2Bcu128-cp313-cp313-win_amd64.whl"
+$audioWheelUrl = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torchaudio-2.8.0%2Bcu128-cp313-cp313-win_amd64.whl"
+
+if ($DryRun) {
+  Write-Host "计划：下载 Python 3.13.7 embeddable + torch 2.8.0+cu128（3.3GB）+ 依赖 + fairseq-fixed" -ForegroundColor Cyan
+  Write-Host "     输出目录：$out；预计 7.6GB；耗时 5–10 分钟"
+  Write-Host "DryRun 完成：未下载、未写入。" -ForegroundColor Green
+  exit 0
+}
 
 Write-Host "==> 准备目录"
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
@@ -40,6 +52,19 @@ Write-Host "==> 安装训练/推理依赖（先装，避免它们把 torch 降�
   "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
   "fairseq-fixed==0.12.3.1" "omegaconf" "hydra-core" "tensorboardX"
 if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
+
+Write-Host "==> 准备 cu128 轮子（缓存缺失时从镜像下载）"
+$torchWheel = Join-Path $wheelDir "torch-2.8.0+cu128-cp313-cp313-win_amd64.whl"
+$audioWheel = Join-Path $wheelDir "torchaudio-2.8.0+cu128-cp313-cp313-win_amd64.whl"
+if (-not (Test-Path $torchWheel)) {
+  Write-Host "    下载 torch（约 3.3GB，断点续传）"
+  & curl.exe -L --fail --retry 3 --retry-delay 2 -C - -o $torchWheel $torchWheelUrl
+  if ($LASTEXITCODE -ne 0) { throw "torch 轮子下载失败" }
+}
+if (-not (Test-Path $audioWheel)) {
+  & curl.exe -L --fail --retry 3 --retry-delay 2 -C - -o $audioWheel $audioWheelUrl
+  if ($LASTEXITCODE -ne 0) { throw "torchaudio 轮子下载失败" }
+}
 
 Write-Host "==> 强制安装 cu128 版 torch/torchaudio（覆盖依赖带来的 CPU 版）"
 & $python -m pip install --no-warn-script-location --no-deps --force-reinstall --find-links $wheelDir "torch==2.8.0+cu128" "torchaudio==2.8.0+cu128"
