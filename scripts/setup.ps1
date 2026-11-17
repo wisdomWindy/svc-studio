@@ -7,6 +7,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:PYTHONIOENCODING = "utf-8"
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
@@ -61,12 +63,12 @@ if ($SkipAssets) {
 
 # ---------- 3. 自检 ----------
 Write-Step "环境自检"
-$env:PYTHONIOENCODING = "utf-8"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 if (Test-Path $runtimePython) {
   $env:SVCSTUDIO_RUNTIME_KIND = "gpu"
-  & $runtimePython -m svc_bridge doctor --json --data-root $dataRoot |
-    python -c "import sys,json; d=json.load(sys.stdin); print('  pass=%d warn=%d fail=%d trainable=%s' % (d['summary']['pass'], d['summary']['warn'], d['summary']['fail'], d['summary']['trainable'])); [print('  [%s] %s: %s' % (i['state'], i['id'], i['message'])) for i in d['items'] if i['state'] != 'pass']"
+  # 直接落文件再解析：避免中文经管道被控制台编码破坏
+  $doctorJson = Join-Path $env:TEMP "svcstudio-doctor.json"
+  & $runtimePython -m svc_bridge doctor --json --data-root $dataRoot | Out-File -Encoding utf8 $doctorJson
+  python -c "import json,io; d=json.load(io.open(r'$doctorJson', encoding='utf-8-sig')); print('  pass=%d warn=%d fail=%d trainable=%s' % (d['summary']['pass'], d['summary']['warn'], d['summary']['fail'], d['summary']['trainable'])); [print('  [%s] %s: %s' % (i['state'], i['id'], i['message'].encode('ascii','ignore').decode().strip())) for i in d['items'] if i['state'] != 'pass']"
 } else {
   Write-Host "    跳过自检：没有内置运行时"
 }
