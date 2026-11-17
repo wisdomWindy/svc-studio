@@ -1917,3 +1917,29 @@ Microsoft.Media.Player （进程在跑）
 ### 质量门
 
 cargo test 121 / pytest 110 / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 移除卸载弹窗；升级与卸载都不再删除 projects
+
+### 问题
+
+覆盖安装时弹出了「卸载将删除 projects」的确认框，而且升级流程会被这个模态框卡住
+（现场发现安装器进程与旧 uninstall.exe 一直挂着，直接把 makensis 的产物文件锁死，
+构建报 `os error 5`）。
+
+### 处理
+
+- 删除 `src-tauri/nsis-hooks.nsh` 与 `tauri.conf.json` 里的 `installerHooks`：**不再有任何卸载确认框**；
+- 实测确认安装器本身只删除"自己装过的文件"，用户创建的 `projects/` 会保留，因此不需要额外保护逻辑。
+
+### 实测（临时目录模拟）
+
+| 步骤 | 结果 |
+| --- | --- |
+| 装 v1 → 造 `projects\keep\keep.txt` | ok |
+| **覆盖安装（升级）** | 15.2 秒完成，无弹窗，`keep.txt` **仍在** |
+| 卸载 | 程序文件清空，**`projects` 目录与 `keep.txt` 仍在** |
+| 覆盖安装到实际目录 `D:\program\svcstudio` | 成功，`projects\qingqingzi` 完好 |
+
+### 质量门
+
+cargo test 121 / pytest 110 / vitest 38 / clippy 0 / `check.ps1` PASS。

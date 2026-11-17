@@ -54,7 +54,6 @@
         "silent": true
       },
       "nsis": {
-        "installerHooks": "nsis-hooks.nsh",
         "compression": "lzma"
       }
     },
