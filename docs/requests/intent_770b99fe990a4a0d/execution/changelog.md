@@ -1627,3 +1627,42 @@ cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 120 / pytest 105 / vitest 38（+3） / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 修复安装版预处理报错（SVC-1001 / 缺依赖 / 缺模板）
+
+界面报 `[SVC-1001] 找不到上游源码 —— vendor/so-vits-svc 缺少 resample.py`。排查出**三个独立问题**，都会让安装版在预处理这一步失败。
+
+### ① 安装包没有打包上游源码
+
+`tauri.conf.json` 的 `bundle.resources` 只有 `resources/bin/*`（ffmpeg），
+`resources/upstream` 没打进去 → 安装版找不到 `resample.py`。
+
+修复：resources 增加 `resources/upstream/**/*` 与 `resources/assets/**/*`；
+安装包 232.4MB → **234.6MB**（上游源码 4.9MB）。
+
+### ② 预处理用 PATH 里的 `python`
+
+`build_steps()` 里 `py = python or "python"`，安装版机器上没有系统 Python，
+即使有上游源码也会 `FileNotFoundError`。
+
+修复：改为 `sys.executable`（内置运行时解释器），并补 `import sys`。
+
+### ③ 运行时缺 `rich`、项目缺 `configs_template/`
+
+- 上游 `resample.py` 第一行就 `from rich.progress import track` → 运行时装 `rich`，并写进 `build-runtime.ps1` 依赖；
+- `preprocess_flist_config.py` 在项目目录下读 `configs_template/config_template.json`，项目里没有就失败 →
+  新增 `ensure_configs_template()`，预处理前从上游自动补一份。
+
+### 实测（安装到 D:\program\svcstudio，用内置运行时跑）
+
+```
+resample      exit 0
+flist_config  exit 0
+hubert_f0     exit 0（31 秒）
+counts: wav 5 / soft 5 / f0 5 / spec 5   diffs []   passed true
+config sha256 已生成
+```
+
+### 质量门
+
+cargo test 120 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。

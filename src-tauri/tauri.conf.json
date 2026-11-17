@@ -59,7 +59,9 @@
       }
     },
     "resources": [
-      "resources/bin/*"
+      "resources/bin/*",
+      "resources/upstream/**/*",
+      "resources/assets/**/*"
     ]
   }
 }

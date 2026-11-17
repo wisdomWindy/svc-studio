@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -55,7 +56,9 @@ def build_steps(
     vol_aug: bool = False,
     python: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    py = python or "python"
+    # 必须用当前解释器（内置运行时），不能用 PATH 里的 python：
+    # 发布版机器上没有系统 Python，`python` 会直接失败。
+    py = python or sys.executable
     up = Path(upstream)
     project_path = Path(project)
 
@@ -126,7 +129,6 @@ def _dataset_dir(project: Path) -> Path:
 
 
 def _min_clip_seconds(dataset_dir: Path) -> float:
-    import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from svc_bridge.audio import read_wav
@@ -138,6 +140,25 @@ def _min_clip_seconds(dataset_dir: Path) -> float:
         except Exception:  # noqa: BLE001
             continue
     return min(durations) if durations else 0.0
+
+
+def ensure_configs_template(project: Path, upstream: Path) -> bool:
+    """上游脚本在项目目录下读 `configs_template/`，项目里没有就从上游补一份。"""
+    import shutil
+
+    target = project / "configs_template"
+    source = upstream / "configs_template"
+    if target.is_dir() and any(target.iterdir()):
+        return False
+    if not source.is_dir():
+        raise FileNotFoundError(f"上游缺少 configs_template：{source}")
+    target.mkdir(parents=True, exist_ok=True)
+    for item in source.iterdir():
+        if item.is_file():
+            shutil.copy2(item, target / item.name)
+        else:
+            shutil.copytree(item, target / item.name, dirs_exist_ok=True)
+    return True
 
 
 def run_chain(
@@ -160,6 +181,12 @@ def run_chain(
     }
 
     executed: List[Dict[str, Any]] = []
+    try:
+        ensure_configs_template(Path(project), Path(upstream))
+    except Exception:  # noqa: BLE001
+        # 补模板失败不致命：下一步会给出更具体的错误
+        pass
+
     failed_step: Optional[str] = None
     for step in steps:
         started = _now()
@@ -239,7 +266,6 @@ def run_chain(
 
 def main(argv: Optional[List[str]] = None) -> int:
     import argparse
-    import sys
 
     parser = argparse.ArgumentParser(prog="svc_bridge preprocess")
     parser.add_argument("--project", required=True)

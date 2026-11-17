@@ -50,7 +50,7 @@ if ($LASTEXITCODE -ne 0) { throw "pip 安装失败" }
 Write-Host "==> 安装训练/推理依赖（先装，避免它们把 torch 降级）"
 & $python -m pip install --no-warn-script-location -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
   "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
-  "fairseq-fixed==0.12.3.1" "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0"
+  "fairseq-fixed==0.12.3.1" "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
 if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
 
 Write-Host "==> 准备 cu128 轮子（缓存缺失时从镜像下载）"
