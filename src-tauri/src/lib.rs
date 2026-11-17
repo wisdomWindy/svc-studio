@@ -112,12 +112,78 @@ fn setup_close_to_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+/// 日志落盘：`<data_root>/logs/app.log`。
+///
+/// 应用是 windows 子系统（没有控制台），所以日志必须写文件；
+/// 需要看实时输出时设 `SVCSTUDIO_LOG_STDOUT=1`（配合 `pnpm tauri dev` 用）。
+#[derive(Clone)]
+struct LogFile(std::sync::Arc<std::sync::Mutex<std::fs::File>>);
+
+impl std::io::Write for LogFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Ok(mut file) = self.0.lock() {
+            file.write_all(buf)?;
+            file.flush()?;
+        }
+        if std::env::var("SVCSTUDIO_LOG_STDOUT").ok().as_deref() == Some("1") {
+            let _ = std::io::stdout().write_all(buf);
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Ok(mut file) = self.0.lock() {
+            file.flush()?;
+        }
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogFile {
+    type Writer = LogFile;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+fn make_log_writer() -> LogFile {
+    use std::io::Write as _;
+
+    let dir = crate::error::data_root()
+        .map(|root| root.join("logs"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("svcstudio-logs"));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("app.log");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .or_else(|_| std::fs::File::create(&path))
+        .unwrap_or_else(|_| {
+            // 最后兜底：临时文件，至少不 panic
+            let tmp = std::env::temp_dir().join("svcstudio-app.log");
+            let _ = std::fs::File::create(&tmp);
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&tmp)
+                .expect("log file")
+        });
+    let mut file = file;
+    let _ = writeln!(file, "---- app start ----");
+    LogFile(std::sync::Arc::new(std::sync::Mutex::new(file)))
+}
+
 pub fn run() {
+    let log_writer = make_log_writer();
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .with_target(false)
+        .with_ansi(false)
+        .with_writer(log_writer)
         .compact()
         .init();
 

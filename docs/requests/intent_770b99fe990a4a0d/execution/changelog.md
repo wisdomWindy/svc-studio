@@ -1321,3 +1321,30 @@ cargo test 116 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 注意
 
 本项目目录位置变化只影响**新建**项目；已有项目仍指向旧路径，需要迁移的话得手工移动 + 改库（暂未提供一键迁移）。
+
+## 2026-11-17 · 主进程也不再带控制台（彻底消除黑框）
+
+### 根因（第二次）
+
+之前修的是**子进程**（python/cmd/tar）的黑框；这次截图里的是**应用自身**的控制台：
+`main.rs` 写的是 `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`，
+即 **debug 构建是控制台子系统**，从终端启动就会附着/新建控制台，tracing 的 INFO 全打在里面。
+
+### 修复
+
+- `main.rs` 改为无条件 `#![windows_subsystem = "windows"]`，debug 与 release 都不再有控制台；
+- 日志改为落盘 `<数据目录>/logs/app.log`（`LogFile` 实现 `MakeWriter`），不再依赖 stdout；
+  需要实时输出时设 `SVCSTUDIO_LOG_STDOUT=1`；
+- 启动仍在文件里留一行 `---- app start ----`，方便排查。
+
+### 实测
+
+| 场景 | 控制台窗口数 |
+| --- | --- |
+| 启动 debug 构建（`target/debug/svc-studio.exe`） | **0** |
+| 安装 release 包并启动（从有控制台的父进程） | **0** |
+| 日志 | `D:\program\svcstudio\logs\app.log` 正常写入 |
+
+### 质量门
+
+cargo test 120 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
