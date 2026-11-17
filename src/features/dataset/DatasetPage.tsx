@@ -41,7 +41,15 @@ export function DatasetPage() {
       if (result.skipped > 0) parts.push(`跳过 ${result.skipped} 个重复`);
       if (result.rejected > 0) parts.push(`忽略 ${result.rejected} 个非音频`);
       setImportNote(parts.join("，"));
-      // 导入后自动刷新结构扫描与 QC，省一次点击
+      // 导入后自动：转码 → 切片 → 统一响度 → 扫描 → QC
+      const prepared = await backend.datasetPrepare(project.id);
+      const convertedCount = Array.isArray(prepared.converted) ? prepared.converted.length : 0;
+      const slicedCount = Array.isArray(prepared.sliced) ? prepared.sliced.length : 0;
+      if (convertedCount > 0 || slicedCount > 0) {
+        setImportNote(
+          `${parts.join("，")}；已转码 ${convertedCount} 个、切片 ${slicedCount} 个为 44.1k 单声道 wav`,
+        );
+      }
       const scanned = await backend.datasetScan(project.id);
       setScan(scanned);
       setQc(await backend.datasetQc(project.id));

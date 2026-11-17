@@ -411,3 +411,48 @@ pub async fn dataset_import(
     outcome.rejected = rejected;
     Ok(serde_json::to_value(outcome).unwrap_or(serde_json::Value::Null))
 }
+
+/// 把用户上传的任意格式音频，处理成 so-vits-svc 需要的形态：
+/// 1) ffmpeg 解码为 44.1k 单声道 wav（原文件移到 `_original/` 保留）
+/// 2) 超过 15s 的切片成 5–15s
+/// 3) 统一响度峰值（重采样步骤）
+#[tauri::command]
+pub async fn dataset_prepare(
+    state: State<'_, AppPaths>,
+    project_id: String,
+) -> AppResult<serde_json::Value> {
+    let python = crate::commands::settings::python_for_state(&state)?;
+    let root = project_root(&state, &project_id)?;
+    let dir = dataset_raw(&root);
+    let root_arg = dir.to_string_lossy().to_string();
+
+    let converted = run_json(&python, &["dataset", "convert", "--root", &root_arg]).await?;
+    let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
+    let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
+
+    let failed = converted
+        .get("failed")
+        .and_then(|v| v.as_array())
+        .map(|v| v.len())
+        .unwrap_or(0);
+    if failed > 0 {
+        return Err(Box::new(AppError::new(
+            "SVC-3001",
+            "部分音频无法转换",
+            format!(
+                "{failed} 个文件解码失败：{}",
+                converted
+                    .get("failed")
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
+            ),
+        )));
+    }
+
+    Ok(serde_json::json!({
+        "converted": converted.get("converted").cloned().unwrap_or(serde_json::Value::Null),
+        "skipped": converted.get("skipped").cloned().unwrap_or(serde_json::Value::Null),
+        "sliced": sliced.get("sliced").cloned().unwrap_or(serde_json::Value::Null),
+        "resampled": resampled.get("changed").cloned().unwrap_or(serde_json::Value::Null),
+    }))
+}

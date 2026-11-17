@@ -102,7 +102,7 @@ def scan(root: str) -> Dict[str, Any]:
             ],
         }
 
-    for spk in sorted(p for p in base.iterdir() if p.is_dir()):
+    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
         speakers.append(spk.name)
         entries = list(spk.iterdir())
         if not any(e.is_file() for e in entries):
@@ -376,7 +376,7 @@ def slice_tree(
     base = Path(root)
     produced: Dict[str, List[str]] = {}
     flagged: List[Dict[str, Any]] = []
-    for spk in sorted(p for p in base.iterdir() if p.is_dir()):
+    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
         for wav_path in sorted(spk.glob("*.wav")):
             seconds = read_wav(wav_path).seconds
             if seconds <= max_s:
@@ -411,7 +411,7 @@ def slice_tree(
 def resample_tree(root: str, target_sr: int = TARGET_SR, target_dbfs: float = -1.0) -> Dict[str, Any]:
     base = Path(root)
     changed: List[Dict[str, Any]] = []
-    for spk in sorted(p for p in base.iterdir() if p.is_dir()):
+    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
         for wav_path in sorted(spk.glob("*.wav")):
             wav = read_wav(wav_path)
             mono = to_mono_if_needed(wav)
@@ -449,7 +449,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="svc_bridge dataset")
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
@@ -464,6 +464,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         result = qc(args.root)
     elif args.action == "slice":
         result = slice_tree(args.root, args.min_seconds, args.max_seconds, args.min_interval_ms)
+    elif args.action == "convert":
+        from .dataset_convert import convert_tree
+
+        result = convert_tree(args.root)
     elif args.action == "resample":
         result = resample_tree(args.root, args.sample_rate)
     else:

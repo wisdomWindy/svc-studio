@@ -1387,3 +1387,38 @@ cargo test 120 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
 
 - 若装到 `C:\Program Files` 等不可写位置，会自动退回 `%USERPROFILE%\SVCStudio`，设置页「数据目录」会显示实际位置；
 - 卸载仍然保留 `projects`（用户数据不删）。
+
+## 2026-11-17 · 任意格式上传 + 内部自动转码/切片
+
+### 行为变化
+
+数据集页只要求"上传说话人的原始音频"：mp3 / m4a / flac / 48k / 立体声都能直接拖进来。
+导入后软件自动：
+
+1. ffmpeg 解码为 **44.1k 单声道 wav**（原文件移到 `dataset_raw/_original/<说话人>/` 保留，不删）
+2. 超过 15s 的自动切片成 5–15s
+3. 统一响度峰值
+4. 重新结构扫描 + QC
+
+### 实现
+
+- `worker/svc_bridge/commands/dataset_convert.py`：`needs_convert()`（非 wav 或非 44.1k 单声道）、`convert_tree()`；
+- `dataset` 子命令新增 `convert`，并在 `__main__.py` 分发器注册；
+- Rust `dataset_prepare`：convert → slice → resample，任一步失败返回 `SVC-3001`；
+- 前端导入后自动调用，并提示「已导入 N 个文件；已转码 X 个、切片 Y 个为 44.1k 单声道 wav」；
+- `scan/qc/slice/resample` 统一忽略 `_` 开头的内部目录，避免 `_original` 被误判成说话人。
+
+### 实测（界面，真实 mp3）
+
+| 项 | 结果 |
+| --- | --- |
+| 输入 | `sample.mp3`（48kHz 立体声，31.9s） |
+| 转码 | 1 个 → `audio_0001.wav`（44.1k 单声道） |
+| 切片 | 1 个源文件 → 5 个片段 |
+| QC | 总时长 32 秒 / 文件数 5 / 静音比 0.9% / 削波比 0.000% / **门禁通过** |
+| 原始文件 | 保留在 `dataset_raw/_original/qingqingzi/` |
+
+### 依赖提醒
+
+转码依赖 **ffmpeg**。当前安装包没有内置 ffmpeg（doctor 的 ffmpeg 检查会 fail 并提示修复）。
+下一步应把 ffmpeg 打进 `resources/`（约 +80MB），否则干净机器上导入 mp3 会失败。
