@@ -1705,3 +1705,31 @@ panic → `panic in a function that cannot unwind` → 进程直接终止（窗�
 ### 质量门
 
 cargo test **121** / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 训练页：运行中把「开始训练」换成「停止训练」
+
+### 问题
+
+点「开始训练」后，页面仍显示「100 步冒烟 / 开始训练 / 停止」三个按钮，状态行却写「运行中」——
+原因是 `jobId` 只用来显示提示，按钮渲染没有接作业状态。
+
+### 改动
+
+- `TrainingPage` 增加 `running` 状态；
+- 作业轮询同时拉 `job_events` 与 `get_job`，按 `status ∈ {running, queued}` 更新 `running`；
+- 按钮改为二选一：
+  - 运行中 → 只显示 **「停止训练」**（primary）；
+  - 空闲 → 显示「100 步冒烟」+「开始训练 / 继续训练」；
+- 点停止后立即把 `running` 置 false（不等轮询）；
+- 状态行使用真实状态（不再硬编码 `running`）；
+- `backend.getJob` 包装 `get_job` 命令。
+
+### 实测
+
+数据库里 `train_main` 作业状态为 `running`（用户上次训练被重装打断），
+应用下次启动时 `reconcile` 会把它标记为 `interrupted`；
+新的按钮逻辑按 `get_job` 实时状态渲染，不会再出现"运行中还能点开始"。
+
+### 质量门
+
+cargo test 121 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。

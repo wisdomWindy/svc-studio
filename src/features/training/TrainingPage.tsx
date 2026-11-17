@@ -20,6 +20,7 @@ export function TrainingPage() {
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [gpuBusy, setGpuBusy] = useState(false);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     const tick = () => void backend.gpuBusy().then(setGpuBusy).catch(() => setGpuBusy(false));
@@ -44,13 +45,29 @@ export function TrainingPage() {
 
   useEffect(() => {
     if (!jobId) return;
-    const id = setInterval(() => {
-      void backend
-        .jobEvents(jobId, 0, 2000)
-        .then((page) => setEvents(page.events))
-        .catch(() => undefined);
-    }, 3000);
-    return () => clearInterval(id);
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const [page, job] = await Promise.all([
+          backend.jobEvents(jobId, 0, 2000),
+          backend.getJob(jobId),
+        ]);
+        if (cancelled) return;
+        setEvents(page.events);
+        // 只有 running/queued 才算"正在训练"，完成后按钮要变回来
+        setRunning(job?.status === "running" || job?.status === "queued");
+      } catch {
+        // 轮询失败不打断界面
+      }
+    };
+
+    void tick();
+    const id = setInterval(() => void tick(), 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [jobId]);
 
   useEffect(() => {
@@ -78,6 +95,7 @@ export function TrainingPage() {
     try {
       const id = await backend.trainStart(project.id, smoke, resume);
       setJobId(id);
+      setRunning(true);
       setMessage(`${smoke ? "冒烟" : "训练"}已启动：${id}`);
     } catch (e) {
       setError(toErrorText(e));
@@ -91,6 +109,7 @@ export function TrainingPage() {
     try {
       await backend.trainStop(jobId);
       setMessage("已请求停止，进度会保留到最近一次 checkpoint");
+    setRunning(false);
     } catch (e) {
       setError(toErrorText(e));
     }
@@ -124,17 +143,31 @@ export function TrainingPage() {
         description="先跑 100 步冒烟（可落盘、可续训），再进长训。停止就是停止，续训从最近 checkpoint 继续。"
         actions={
           <div className="flex gap-2">
-            <Button disabled={!!busy || gate?.trainable === false} onClick={() => void start(true)}>
-              {busy === "smoke" ? "启动中…" : "100 步冒烟"}
-            </Button>
-            <Button variant="primary" disabled={!!busy} onClick={() => void start(false, checkpoints.length > 0)}>
-              {busy === "train"
-                ? "启动中…"
-                : checkpoints.length > 0
-                  ? "继续训练"
-                  : "开始训练"}
-            </Button>
-            {jobId && <Button variant="ghost" onClick={() => void stop()}>停止</Button>}
+            {running ? (
+              <Button variant="primary" disabled={!!busy} onClick={() => void stop()}>
+                停止训练
+              </Button>
+            ) : (
+              <>
+                <Button
+                  disabled={!!busy || gate?.trainable === false}
+                  onClick={() => void start(true)}
+                >
+                  {busy === "smoke" ? "启动中…" : "100 步冒烟"}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!!busy}
+                  onClick={() => void start(false, checkpoints.length > 0)}
+                >
+                  {busy === "train"
+                    ? "启动中…"
+                    : checkpoints.length > 0
+                      ? "继续训练"
+                      : "开始训练"}
+                </Button>
+              </>
+            )}
           </div>
         }
         badge={
@@ -232,7 +265,7 @@ export function TrainingPage() {
       })()}
 
       <p className="mt-3 text-[11px] text-muted">
-        当前状态：{statusLabel(jobId ? "running" : "queued")}
+        当前状态：{statusLabel(jobId ? (running ? "running" : "succeeded") : "queued")}
         {jobId ? ` · 任务 ${jobId}` : ""} · 冒烟产物在 logs/_smoke，不会污染正式模型目录。
       </p>
     </>
