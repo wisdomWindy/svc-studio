@@ -1761,3 +1761,38 @@ cargo test 121 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 121 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 训练"永远 0 步"的真因：两路训练并发把显存打爆
+
+### 证据（用户提供的日志）
+
+```
+19:36:52  _smoke  config {... batch_size 6, eval_interval 50 ...}
+19:37:17  _smoke  Train Epoch 1 [0%]   Losses ... step: 0   VRAM peak: 13182 MB
+19:37:30  _smoke  config {... 又一次 ...}          ← 13 秒后重新开始
+```
+
+数据库里同时存在两条 `running`：
+
+```
+train_smoke  started 11:57:26
+train_main   started 11:56:22
+```
+
+两路训练各自占约 13GB 显存（卡只有 16GB）→ 互相 OOM → 反复重启 → 永远停在 step 0。
+
+### 修复
+
+`train_start` 开跑前检查是否已有 `running/queued` 的训练/预处理/推理作业，
+有则直接返回 `SVC-5004`「已有训练在运行」并说明两路会互相 OOM。
+（此前只有 UI 上的 GPU 徽标提示，后端不拦。）
+
+### 实测
+
+- 清理掉两路残留进程与作业后再启动，不再出现并发训练；
+- `cargo test 121 / pytest 105 / vitest 38 / clippy 0`，`check.ps1` PASS。
+
+### 提醒
+
+`logs/44k` 里其实已经有 `D_200 / D_400` 和 `G_0`，说明单路训练是能跑起来的；
+并发才是"0 步"的原因。用新版重新点一次「100 步冒烟」即可看到 `G_25 / G_50 / G_75`。

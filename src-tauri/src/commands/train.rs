@@ -337,7 +337,23 @@ mod resume_tests {
     }
 }
 
+/// 当前是否已有 running/queued 的训练作业。
+fn find_active_train(state: &crate::AppPaths) -> AppResult<Option<(String, String)>> {
+    let jobs = state
+        .db
+        .with(|c| crate::core::repo::jobs::list_recent(c, 200))?;
+    for job in jobs {
+        if matches!(job.status.as_str(), "running" | "queued")
+            && (job.kind.starts_with("train_") || job.kind == "preprocess" || job.kind == "infer")
+        {
+            return Ok(Some((job.id, job.kind)));
+        }
+    }
+    Ok(None)
+}
+
 #[tauri::command]
+
 pub fn train_start(
     state: State<'_, AppPaths>,
     project_id: String,
@@ -356,6 +372,18 @@ pub fn train_start(
     }
     let is_smoke = smoke.unwrap_or(false);
     let wants_resume = resume.unwrap_or(false);
+
+    // 同一时间只允许一个训练：两路训练会争抢显存，表现为反复重启、永远 0 步。
+    if let Some(active) = find_active_train(&state)? {
+        return Err(Box::new(AppError::new(
+            "SVC-5004",
+            "已有训练在运行",
+            format!(
+                "任务 {} 仍在运行，请先停止它再开新的训练（显存只有一块，两路会互相 OOM）",
+                active.0
+            ),
+        )));
+    }
     if should_block_start(is_smoke, wants_resume, legacy_checkpoints(&root)) {
         return Err(Box::new(AppError::new(
             "SVC-5003",
