@@ -96,6 +96,7 @@ export function SettingsPage() {
             {[
               ["应用版本", boot?.appVersion ?? "—"],
               ["数据目录", boot?.dataRoot ?? "—"],
+            ["项目目录", boot?.projectsRoot ?? "—"],
               ["数据库版本", boot ? String(boot.dbVersion) : "—"],
               ["运行时", boot?.runtimeVersion ?? "未就绪"],
               ["GPU", boot?.gpu ? `${boot.gpu.name} ${Math.round(boot.gpu.vramMb / 1024)}GB` : "未检测"],

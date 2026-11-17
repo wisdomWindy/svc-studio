@@ -1298,3 +1298,26 @@ cargo test 114 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 116 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 项目目录改到软件安装位置
+
+### 变更
+
+- 新增 `core/projects_root.rs`：项目根目录解析顺序 = 环境变量 `SVCSTUDIO_PROJECTS_ROOT` → 设置项 `projects_root` → **安装目录下的 `projects/`（可写时）** → 数据目录兜底；
+- 用「真的写一个临时文件再删」判断目录可写，避免 `C:\Program Files` 这类无权限目录导致建项目直接失败；
+- `create_project` 默认根目录改为上述解析结果；原先禁止把项目放在程序子树的规则保留（仍禁 `runtime/` `assets/` `configs_template/`）；
+- `bootstrap` 增加 `projectsRoot`，设置页显示「项目目录」；4 条单测覆盖优先级与可写探测；
+- 新增 `src-tauri/nsis-hooks.nsh`：交互式卸载前提示「projects 里是数据集与模型」，可取消；静默卸载跳过提示。
+
+### 实测
+
+| 项 | 结果 |
+| --- | --- |
+| 装到 `tmp\verify-install2` 后新建项目 | 落在 `verify-install2\projects\install-dir-test` ✅ |
+| 数据库 root_path | `D:\program\svcstudio\tmp\verify-install2\projects\install-dir-test` |
+| 旧项目 `qingqingzi` | 仍在原数据目录（绝对路径不变，继续可用） |
+| 卸载后 | 程序文件被清理，**`projects` 文件夹保留**（用户数据不丢） |
+
+### 注意
+
+本项目目录位置变化只影响**新建**项目；已有项目仍指向旧路径，需要迁移的话得手工移动 + 改库（暂未提供一键迁移）。

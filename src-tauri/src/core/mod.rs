@@ -10,6 +10,7 @@ pub mod job_state;
 pub mod model;
 pub mod models;
 pub mod proc;
+pub mod projects_root;
 pub mod repo;
 pub mod runner;
 pub mod runtime;

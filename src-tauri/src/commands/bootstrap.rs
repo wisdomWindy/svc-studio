@@ -21,6 +21,8 @@ pub struct Bootstrap {
     pub python_path: String,
     pub db_version: u32,
     pub data_root: String,
+    /// 项目根目录（默认在安装目录下的 projects）。
+    pub projects_root: String,
     pub webview2_version: Option<String>,
     pub gpu: Option<Gpu>,
     pub first_run: bool,
@@ -100,6 +102,20 @@ pub fn bootstrap(state: State<'_, AppPaths>) -> AppResult<Bootstrap> {
         python_path: python.to_string_lossy().to_string(),
         db_version: state.db.version,
         data_root: state.data_root.to_string_lossy().to_string(),
+        projects_root: {
+            let configured = state
+                .db
+                .with(|c| crate::core::repo::settings::get_raw(c, "projects_root"))
+                .ok()
+                .flatten()
+                .and_then(|raw| serde_json::from_str::<String>(&raw).ok());
+            crate::core::projects_root::resolve_projects_root(
+                &state.data_root,
+                configured.as_deref(),
+            )
+            .to_string_lossy()
+            .to_string()
+        },
         webview2_version: None,
         gpu: state
             .gpu

@@ -17,6 +17,7 @@ export interface BootstrapInfo {
   pythonPath: string;
   dbVersion: number;
   dataRoot: string;
+  projectsRoot: string;
   webview2Version: string | null;
   gpu: { name: string; vramMb: number } | null;
   firstRun: boolean;
@@ -44,6 +45,7 @@ export interface DoctorReport {
   schema: string;
   generatedAt: string;
   dataRoot: string;
+  projectsRoot: string;
   items: DoctorItem[];
   summary: { pass: number; warn: number; fail: number; trainable: boolean };
 }

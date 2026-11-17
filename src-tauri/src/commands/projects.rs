@@ -90,12 +90,24 @@ pub fn create_project(
     let slug = slugify(name);
     let root = match input.root_path.as_deref().map(str::trim) {
         Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
-        _ => state.data_root.join("projects").join(&slug),
+        _ => {
+            let configured = state
+                .db
+                .with(|c| crate::core::repo::settings::get_raw(c, "projects_root"))
+                .ok()
+                .flatten()
+                .and_then(|raw| serde_json::from_str::<String>(&raw).ok());
+            crate::core::projects_root::resolve_projects_root(
+                &state.data_root,
+                configured.as_deref(),
+            )
+            .join(&slug)
+        }
     };
 
     // 安装目录内只读子树不允许作为项目根（PRD §5.1）。
     let root_str = root.to_string_lossy().replace('\\', "/").to_lowercase();
-    for forbidden in ["/app/", "/runtime/", "/assets/", "/configs_template/"] {
+    for forbidden in ["/runtime/", "/assets/", "/configs_template/"] {
         if root_str.contains(forbidden) {
             return Err(Box::new(AppError::new(
                 "SVC-3002",
