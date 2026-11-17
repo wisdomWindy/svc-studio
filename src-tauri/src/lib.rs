@@ -144,6 +144,7 @@ pub fn run() {
             commands::projects::list_projects,
             commands::projects::get_project,
             commands::projects::delete_project,
+            commands::projects::project_open_dir,
             commands::jobs::list_jobs,
             commands::jobs::get_job,
             commands::jobs::job_events,

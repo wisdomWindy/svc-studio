@@ -172,7 +172,11 @@ export function OverviewPage() {
           {projects.map((project) => (
             <button
               key={project.id}
-              onClick={() => selectProject(project.id)}
+              title={`打开 ${project.name} 的项目目录`}
+              onClick={() => {
+                selectProject(project.id);
+                void backend.projectOpenDir(project.id).catch(() => undefined);
+              }}
               className={`rounded-lg border p-3.5 text-left transition-colors ${
                 project.id === activeProjectId
                   ? "border-accent/70 bg-surface"
@@ -190,6 +194,7 @@ export function OverviewPage() {
                 <span>{project.materialType === "singing" ? "歌声" : "语音"}</span>
                 <span>{formatClock(project.createdAt)}</span>
               </div>
+              <div className="mt-1 text-[10px] text-muted">点击卡片打开项目目录</div>
               <div className="mt-2 flex justify-end">
                 <span
                   role="button"

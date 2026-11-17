@@ -1282,3 +1282,19 @@ cargo test 111 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 114 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 点击项目卡片打开项目目录
+
+### 改动
+
+- Rust `project_open_dir(id)`：按项目 id 查登记的 `root_path`，校验目录存在后用资源管理器打开（`explorer` + 隐藏控制台）。只允许打开已登记的项目目录，不接受任意路径。
+- 前端项目卡片：点击 = 设为当前项目 **并**打开其目录；卡片内加一行「点击卡片打开项目目录」提示；删除按钮 `stopPropagation` 不受影响。
+- 2 条单测：不存在目录返回 `SVC-7004`、存在目录可正常打开。
+
+### 实测
+
+点击 `qingqingzi` 卡片后，资源管理器窗口标题变为 **「qingqingzi - 文件资源管理器」**（pid 96180），路径即项目根目录。
+
+### 质量门
+
+cargo test 116 / pytest 100 / vitest 35 / clippy 0 / `check.ps1` PASS。

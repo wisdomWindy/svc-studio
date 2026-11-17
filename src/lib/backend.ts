@@ -98,6 +98,7 @@ export const backend = {
   listProjects: () => call<Project[]>("list_projects"),
   createProject: (input: CreateProjectInput) =>
     call<CreateProjectResult>("create_project", { input }),
+  projectOpenDir: (id: string) => call<void>("project_open_dir", { id }),
   deleteProject: (id: string, deleteFiles: boolean) =>
     call<void>("delete_project", { id, deleteFiles }),
 

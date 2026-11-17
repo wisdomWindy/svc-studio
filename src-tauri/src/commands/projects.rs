@@ -7,6 +7,7 @@ use crate::core::repo::projects::{self, NewProject};
 use crate::error::{AppError, AppResult};
 use crate::infra::db::now_iso;
 use crate::AppPaths;
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,4 +186,56 @@ pub fn delete_project(state: State<'_, AppPaths>, id: String, delete_files: bool
     }
 
     state.db.with(|c| projects::delete(c, &id))
+}
+
+/// 在资源管理器中打开项目目录（只允许打开已登记的项目根目录）。
+#[tauri::command]
+pub fn project_open_dir(state: State<'_, AppPaths>, id: String) -> AppResult<()> {
+    let project = state
+        .db
+        .with(|c| projects::get(c, &id))?
+        .ok_or_else(|| Box::new(AppError::new("SVC-7004", "项目不存在", id.clone())))?;
+    let root = PathBuf::from(&project.root_path);
+    open_in_explorer(&root)
+}
+
+fn open_in_explorer(path: &std::path::Path) -> AppResult<()> {
+    if !path.is_dir() {
+        return Err(Box::new(AppError::new(
+            "SVC-7004",
+            "项目目录不存在",
+            path.display().to_string(),
+        )));
+    }
+    let mut cmd = std::process::Command::new("explorer");
+    crate::core::proc::hide_console(&mut cmd);
+    cmd.arg(path);
+    cmd.spawn().map_err(|e| {
+        Box::new(AppError::new(
+            "SVC-7004",
+            "无法打开资源管理器",
+            e.to_string(),
+        ))
+    })?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_missing_directory() {
+        let missing = std::env::temp_dir().join("svc-no-such-project-dir");
+        let err = open_in_explorer(&missing).unwrap_err();
+        assert_eq!(err.code, "SVC-7004");
+    }
+
+    #[test]
+    fn accepts_existing_directory() {
+        let dir = std::env::temp_dir().join(format!("svcproj-{}", uuid::Uuid::now_v7().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(open_in_explorer(&dir).is_ok());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
