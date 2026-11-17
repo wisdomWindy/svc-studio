@@ -67,7 +67,8 @@ def to_svc_kwargs(params: Dict[str, Any], spk: str, raw_audio_path: Path) -> Dic
         "auto_predict_f0": bool(params.get("autoPredictF0")),
         "noice_scale": float(params.get("noiseScale") or 0.4),
         "pad_seconds": float(params.get("padSeconds") or 0.5),
-        "clip_seconds": float(params.get("clip") or 0.0),
+        # 0/未填时给 25s 上限：整首歌一次性推理会直接打爆显存（实测 17GB）
+        "clip_seconds": float(params.get("clip") or 0.0) or 25.0,
         "lg_num": float(params.get("linearGradient") or 0.0),
         "lgr_num": float(params.get("linearGradientRetain") or 0.75),
         "f0_predictor": params.get("f0Predictor"),
@@ -82,7 +83,22 @@ def to_svc_kwargs(params: Dict[str, Any], spk: str, raw_audio_path: Path) -> Dic
 
 def normalize_input(src: Path, dst: Path) -> None:
     """推理输入统一成 44.1k 单声道、峰值 -1dBFS；原文件不动。"""
-    wav = read_wav(src)
+    source = src
+    if src.suffix.lower() not in {".wav", ".wave"}:
+        # 非 wav（mp3/m4a/flac…）先解码成临时 wav，再走后面的统一处理
+        from .dataset_convert import _convert_one, find_ffmpeg
+
+        ffmpeg = find_ffmpeg()
+        if ffmpeg is None:
+            raise RuntimeError("找不到 ffmpeg，无法解码非 wav 输入（安装包应内置 ffmpeg）")
+        decoded = dst.with_name(dst.stem + ".decoded.wav")
+        _convert_one(ffmpeg, src, decoded)
+        source = decoded
+    try:
+        wav = read_wav(source)
+    finally:
+        if source is not src:
+            source.unlink(missing_ok=True)
     mono = to_mono_if_needed(wav)
     trimmed = trim_silence(mono, wav.sample_rate)
     resampled = resample_linear(trimmed, wav.sample_rate, TARGET_SR)
@@ -98,7 +114,8 @@ def prepare_batch(
     failures: List[tuple[Path, str]] = []
     for src in inputs:
         try:
-            normalize_input(src, batch / "inputs" / src.name)
+            # 统一落到 .wav：下游读取与输出命名都以 wav 为准
+            normalize_input(src, batch / "inputs" / (src.stem + ".wav"))
         except Exception as exc:  # noqa: BLE001 - 坏文件进失败清单
             failures.append((src, f"{type(exc).__name__}: {exc}"))
     return batch, failures
@@ -240,7 +257,7 @@ def run_batch(
     for src in inputs:
         if str(src) in failed_sources:
             continue
-        staged = batch / "inputs" / src.name
+        staged = batch / "inputs" / (src.stem + ".wav")
         out_path = out_dir / f"{Path(src.name).stem}.{fmt}"
         item: Dict[str, Any] = {
             "input": str(staged),

@@ -1855,3 +1855,41 @@ progress step=1/1 status=ok
 ### 质量门
 
 cargo test 121 / pytest **107**（+2）/ vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 推理仍然失败的真因：输入是 mp3 + clip=0 打爆显存
+
+### 证据（report.json）
+
+```
+items[0].input  ...赵本山《慌啥子嘛》...mp3
+items[0].error  Error: file does not start with RIFF id
+```
+
+修完 on_item 后暴露的下一层：`normalize_input` 用自研 `read_wav` 读输入，
+**只认 WAV**，用户上传 mp3 直接抛 RIFF 错误。改成 clip=25 后同一首又报：
+
+```
+OutOfMemoryError: CUDA out of memory. Tried to allocate 2.57 GiB.
+Of the allocated memory 17.33 GiB is allocated by PyTorch
+```
+
+因为 UI 默认 `clip=0`（上游含义是"不切块"），整首歌一次性进模型。
+
+### 修复
+
+- `normalize_input`：非 wav 输入先用内置 ffmpeg 解码成 44.1k 单声道 wav，再走原有归一化；
+- `prepare_batch` / staged 路径统一用 `<stem>.wav`，避免下游再按扩展名误读；
+- `to_svc_kwargs`：`clip <= 0` 时回落 **25 秒**（与 whisper-ppg 的 `--clip 25` 一致），
+  防止整首歌一次性推理；新增 3 条 pytest；
+- 批量失败时把**第一条失败原因**写入作业事件，任务页不再只有 `SVC-6001` 空壳。
+
+### 实测
+
+| 输入 | 结果 |
+| --- | --- |
+| 5 秒 wav | ok=1，3.3s |
+| **整首 mp3（约 4 分钟）** | 解码后按 25s 切块，**ok=1，5.6s** |
+
+### 质量门
+
+cargo test 121 / pytest **110** / vitest 38 / clippy 0 / `check.ps1` PASS。

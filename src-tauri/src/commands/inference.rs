@@ -463,6 +463,48 @@ pub fn infer_start(
         } else {
             "succeeded_with_errors"
         };
+        // 批量失败时把第一条失败原因写进事件，避免任务页只有 SVC-6001 没有细节
+        if status == "failed" {
+            if let Some(path) = report_path.as_ref() {
+                if let Ok(text) = std::fs::read_to_string(path) {
+                    if let Ok(report) = serde_json::from_str::<Value>(&text) {
+                        let detail = report
+                            .get("items")
+                            .and_then(|v| v.as_array())
+                            .and_then(|items| {
+                                items.iter().find_map(|item| {
+                                    let failed = item.get("status").and_then(|s| s.as_str())
+                                        == Some("failed");
+                                    if !failed {
+                                        return None;
+                                    }
+                                    let input =
+                                        item.get("input").and_then(|s| s.as_str()).unwrap_or("");
+                                    let error =
+                                        item.get("error").and_then(|s| s.as_str()).unwrap_or("");
+                                    Some(format!("{input}: {error}"))
+                                })
+                            })
+                            .unwrap_or_else(|| "推理失败（报告里没有具体条目）".to_string());
+                        let now = now_iso();
+                        let _ = db.with(|c| {
+                            crate::core::repo::jobs::append_event(
+                                c,
+                                &job_for_task,
+                                &crate::core::repo::jobs::NewJobEvent {
+                                    level: "error",
+                                    code: Some("SVC-6001"),
+                                    message: &detail,
+                                    data_json: None,
+                                    ts: &now,
+                                },
+                            )
+                        });
+                    }
+                }
+            }
+        }
+
         let params_hash = crate::infra::fs::sha256_bytes(params_json_for_task.as_bytes());
 
         let _ = db.with(|c| {
