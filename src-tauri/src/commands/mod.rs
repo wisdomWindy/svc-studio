@@ -14,6 +14,7 @@ pub mod perf;
 pub mod preprocess;
 pub mod projects;
 pub mod runner;
+pub mod runtime_download;
 pub mod runtime_setup;
 pub mod settings;
 pub mod train;

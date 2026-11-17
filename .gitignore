@@ -63,3 +63,6 @@ tsconfig.tsbuildinfo
 
 # 安装包二进制（体积大，只保留哈希与路径记录）
 docs/requests/*/evidence/**/*.exe
+
+# 需求/验收文档只在本地保留
+docs/

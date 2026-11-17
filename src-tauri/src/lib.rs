@@ -254,6 +254,7 @@ pub fn run() {
             commands::settings::consents_status,
             commands::runtime_setup::runtime_setup_status,
             commands::runtime_setup::install_runtime_from_zip,
+            commands::runtime_download::install_runtime_from_release,
             commands::settings::accept_consents,
             commands::assets::assets_manifest,
             commands::assets::import_asset_dir,

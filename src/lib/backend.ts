@@ -239,6 +239,10 @@ export const backend = {
       { zipPath },
     ),
 
+  installRuntimeFromRelease: () =>
+    call<{ ready: boolean; pythonPath: string | null; bytes: number }>(
+      "install_runtime_from_release",
+    ),
   doctorCached: () =>
     call<{ trainable: boolean; blocking: string[] } | null>("doctor_cached"),
   exportDiagnostics: () =>
