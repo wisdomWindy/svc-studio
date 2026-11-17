@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { backend } from "@/lib/backend";
-import { useAppStore } from "@/lib/store";
+import { useActiveProject, useAppStore } from "@/lib/store";
 import { formatBytes, statusLabel, statusTone } from "@/lib/format";
 import type { ModelCard } from "@/types";
 
@@ -17,6 +17,7 @@ const TONE: Record<string, string> = {
 };
 
 export function ModelsPage() {
+  const project = useActiveProject();
   const { models, setModels } = useAppStore();
   const [defaultId, setDefaultId] = useState<string | null>(null);
   const [trust, setTrust] = useState(false);
@@ -38,7 +39,7 @@ export function ModelsPage() {
 
   useEffect(() => {
     void reload();
-  }, [reload]);
+  }, [reload, project?.id]);
 
   async function pickAndImport() {
     setError(null);

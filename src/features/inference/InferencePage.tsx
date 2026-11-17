@@ -42,9 +42,21 @@ export function InferencePage() {
   }, [reload]);
 
   useEffect(() => {
+    setBatches([]);
     if (!project) return;
-    void backend.inferBatches(project.id).then(setBatches).catch(() => setBatches([]));
-  }, [project, message]);
+    let cancelled = false;
+    void backend
+      .inferBatches(project.id)
+      .then((list) => {
+        if (!cancelled) setBatches(list);
+      })
+      .catch(() => {
+        if (!cancelled) setBatches([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id, message]);
 
   async function pickInputs() {
     try {

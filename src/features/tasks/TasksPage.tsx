@@ -4,6 +4,7 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { backend } from "@/lib/backend";
 import { formatClock, percent, statusLabel, statusTone } from "@/lib/format";
+import { useActiveProject } from "@/lib/store";
 import type { Job, JobEvent } from "@/types";
 
 const TONE: Record<string, string> = {
@@ -21,6 +22,7 @@ const LEVEL_TONE: Record<string, string> = {
 };
 
 export function TasksPage() {
+  const project = useActiveProject();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [events, setEvents] = useState<JobEvent[]>([]);
@@ -30,7 +32,8 @@ export function TasksPage() {
   useEffect(() => {
     async function tick() {
       try {
-        const list = await backend.listJobs(100);
+        const all = await backend.listJobs(100);
+        const list = project ? all.filter((j) => j.projectId === project.id) : all;
         setJobs(list);
         const running = list.find((j) => j.status === "running" || j.status === "queued");
         if (!selected && running) setSelected(running.id);
@@ -44,7 +47,7 @@ export function TasksPage() {
       if (timer.current) clearInterval(timer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+  }, [selected, project?.id]);
 
   useEffect(() => {
     if (!selected) return;

@@ -1559,3 +1559,22 @@ cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
 ### 质量门
 
 cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 切换项目后所有页面自动刷新
+
+### 覆盖范围
+
+| 页面 | 行为 |
+| --- | --- |
+| 数据集 | 自动重载结构扫描 + QC（上一轮已做） |
+| 预处理 | 切换时清空 QC/产物计数，按新项目重拉 `dataset_qc_verdict` 与 `preprocess_manifest` |
+| 训练 | 清空 checkpoint 列表并按新项目重拉 |
+| 推理 | 清空批次列表并按新项目重拉 `infer_batches` |
+| 模型库 | 项目切换时重新拉取模型列表与默认模型 |
+| 任务 | **按当前项目过滤任务**，切换时立即重拉（原先是全局 100 条） |
+
+所有异步加载都带 `cancelled` 标记，快速切换项目时旧请求结果不会覆盖新数据。
+
+### 质量门
+
+cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。

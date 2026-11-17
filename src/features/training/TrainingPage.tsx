@@ -53,12 +53,21 @@ export function TrainingPage() {
   }, [jobId]);
 
   useEffect(() => {
+    setCheckpoints([]);
     if (!project) return;
+    let cancelled = false;
     void backend
       .trainCheckpoints(project.id)
-      .then(setCheckpoints)
-      .catch(() => setCheckpoints([]));
-  }, [project, jobId]);
+      .then((list) => {
+        if (!cancelled) setCheckpoints(list);
+      })
+      .catch(() => {
+        if (!cancelled) setCheckpoints([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id, jobId]);
 
   async function start(smoke: boolean, resume = false) {
     if (!project) return;

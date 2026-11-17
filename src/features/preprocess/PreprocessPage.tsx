@@ -26,12 +26,23 @@ export function PreprocessPage() {
   const [qc, setQc] = useState<{ exists: boolean; passed: boolean; blocking: number } | null>(null);
 
   useEffect(() => {
+    setQc(null);
+    setManifest(null);
+    setAssertion(null);
     if (!project) return;
+    let cancelled = false;
     void backend
       .datasetQcVerdict(project.id)
-      .then(setQc)
-      .catch(() => setQc(null));
-  }, [project]);
+      .then((value) => {
+        if (!cancelled) setQc(value);
+      })
+      .catch(() => {
+        if (!cancelled) setQc(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id]);
 
   useEffect(() => {
     void backend
@@ -42,11 +53,19 @@ export function PreprocessPage() {
 
   useEffect(() => {
     if (!project) return;
+    let cancelled = false;
     void backend
       .preprocessManifest(project.id)
-      .then((value) => setManifest((value as Manifest) ?? null))
-      .catch(() => setManifest(null));
-  }, [project]);
+      .then((value) => {
+        if (!cancelled) setManifest((value as Manifest) ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setManifest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id]);
 
   async function start() {
     if (!project) return;
