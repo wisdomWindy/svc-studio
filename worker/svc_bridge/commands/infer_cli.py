@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -25,6 +27,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     params = json.loads(Path(args.params).read_text(encoding="utf-8-sig"))
     inputs = [Path(p) for p in args.inputs]
+
+    # 上游 `Svc` 用相对路径找 pretrain/ 与 logs/，必须把工作目录切到项目根。
+    project_dir = Path(args.project).resolve()
+    upstream = os.environ.get("SVCSTUDIO_UPSTREAM_DIR", "").strip()
+    if upstream and upstream not in sys.path:
+        sys.path.insert(0, upstream)
+    previous_cwd = os.getcwd()
+    os.chdir(project_dir)
     emit("stage", stage="inference", message="开始推理：%d 条" % len(inputs))
 
     try:
@@ -43,6 +53,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     except Exception as exc:  # noqa: BLE001
         emit("error", code="SVC-6001", message="推理失败：%s" % exc, retriable=False)
         return exit_codes.INFER
+    finally:
+        os.chdir(previous_cwd)
 
     summary = report["summary"]
     emit_log("批次完成：ok=%s failed=%s" % (summary["ok"], summary["failed"]))

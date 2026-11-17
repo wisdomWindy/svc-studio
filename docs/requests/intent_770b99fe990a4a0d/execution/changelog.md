@@ -1823,3 +1823,35 @@ train_main   started 11:56:22
 ### 质量门
 
 cargo test 121 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 推理失败四连修（on_item / 工作目录 / 非 wav 指标 / 重试提示）
+
+### 报错链（逐个暴露）
+
+1. `run_batch() got an unexpected keyword argument 'on_item'`
+   → `infer_cli` 传了 `on_item`，但 `run_batch` 没有这个参数；
+2. `Model file not found: pretrain/checkpoint_best_legacy_500.pt`
+   → 推理是**进程内**导入上游 `Svc`，工作目录是 worker 目录，相对路径 `pretrain/` 找不到；
+3. `file does not start with RIFF id` / `NameError: out_wav`
+   → 产出是 flac，却用只认 WAV 的解析器读时长与峰值；
+4. 任务页「重试」对 `queued` 作业报 `[SVC-7002] 当前状态不能重试`。
+
+### 修复
+
+- `run_batch(..., on_item=None)` 并支持回调；新增 2 条 pytest（成功/失败都要回调）；
+- `infer_cli` 启动时 `os.chdir(项目根)`（结束时恢复），并把上游目录塞进 `sys.path`；
+- 新增 `_seconds_of / _peak_dbfs / _clip_ratio`：wav 走自研解析，其它格式走 `soundfile`
+  （float32 → int16 后再统计，避免 numpy 真值歧义）；
+- 重试逻辑：`queued/running` 时给出「任务已在排队/运行，无需重试」的可读提示。
+
+### 实测（G_1800 + 内置运行时）
+
+```
+progress step=1/1 status=ok
+批次完成：ok=1 failed=0   耗时 3.3s
+输出 outputs/20261117-2029_batch/outputs/audio_0001.vocals_001.flac（207KB）
+```
+
+### 质量门
+
+cargo test 121 / pytest **107**（+2）/ vitest 38 / clippy 0 / `check.ps1` PASS。

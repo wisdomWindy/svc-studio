@@ -141,6 +141,53 @@ def _real_runner_factory(
     return runner
 
 
+def _samples_of(path: Path):
+    """读样点做峰值/削波统计：wav 用自研解析，其它格式用 soundfile。"""
+    if path.suffix.lower() in {".wav", ".wave"}:
+        try:
+            return read_wav(path).samples
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        import array
+
+        import numpy as np
+        import soundfile  # type: ignore
+
+        data, _ = soundfile.read(str(path), dtype="float32", always_2d=False)
+        data = np.clip(np.asarray(data).reshape(-1), -1.0, 1.0)
+        ints = (data * 32767.0).astype("<i2")
+        return array.array("h", ints.tobytes())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _peak_dbfs(path: Path) -> float:
+    samples = _samples_of(path)
+    return peak_dbfs(samples) if samples is not None else 0.0
+
+
+def _clip_ratio(path: Path) -> float:
+    samples = _samples_of(path)
+    return clipping_ratio(samples) if samples is not None else 0.0
+
+
+def _seconds_of(path: Path) -> float:
+    """读音频时长：wav 用自研解析，其它格式（flac 等）用 soundfile。"""
+    if path.suffix.lower() in {".wav", ".wave"}:
+        try:
+            return read_wav(path).seconds
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        import soundfile  # type: ignore
+
+        info = soundfile.info(str(path))
+        return float(info.frames) / float(info.samplerate or 1)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def run_batch(
     root: Path,
     model_path: str,
@@ -151,6 +198,7 @@ def run_batch(
     batch_name: str = "batch",
     runner: Optional[Runner] = None,
     runner_factory: Optional[Callable[[], Runner]] = None,
+    on_item: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     batch, prep_failures = prepare_batch(root, batch_name, inputs)
     out_dir = batch / "outputs"
@@ -205,21 +253,25 @@ def run_batch(
             t0 = time.time()
             runner(kwargs, out_path)
             elapsed = time.time() - t0
-            out_wav = read_wav(out_path)
-            seconds_out = out_wav.seconds
-            seconds_in = read_wav(staged).seconds
+            seconds_out = _seconds_of(out_path)
+            seconds_in = _seconds_of(staged)
             item.update(
                 {
                     "status": "ok",
                     "rtf": round(elapsed / seconds_in, 3) if seconds_in else None,
                     "secondsIn": round(seconds_in, 3),
                     "secondsOut": round(seconds_out, 3),
-                    "peakDbfs": round(peak_dbfs(out_wav.samples), 2),
-                    "clipRatio": round(clipping_ratio(out_wav.samples), 6),
+                    "peakDbfs": round(_peak_dbfs(out_path), 2),
+                    "clipRatio": round(_clip_ratio(out_path), 6),
                 }
             )
         except Exception as exc:  # noqa: BLE001 - 单条失败不能拖垮批次
             item.update({"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+        if on_item is not None:
+            try:
+                on_item(len(items) + 1, len(inputs), item)
+            except Exception:  # noqa: BLE001
+                pass
         items.append(item)
 
     ok = sum(1 for i in items if i["status"] == "ok")
