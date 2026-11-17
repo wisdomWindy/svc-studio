@@ -25,6 +25,7 @@ export function TrainingPage() {
     step: null,
     total: null,
   });
+  const [registeredPaths, setRegisteredPaths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const tick = () => void backend.gpuBusy().then(setGpuBusy).catch(() => setGpuBusy(false));
@@ -74,6 +75,20 @@ export function TrainingPage() {
       clearInterval(id);
     };
   }, [jobId]);
+
+  const refreshRegistered = useCallback(async () => {
+    try {
+      const models = await backend.listModels();
+      const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+      setRegisteredPaths(new Set(models.map((m) => norm(m.path))));
+    } catch {
+      /* 读取失败时保持空集合，不影响训练 */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRegistered();
+  }, [refreshRegistered, jobId]);
 
   const refreshCheckpoints = useCallback(async () => {
     if (!project) return;
@@ -141,7 +156,12 @@ export function TrainingPage() {
     if (!project) return;
     try {
       const result = await backend.registerModel(project.id, checkpoint.path);
-      setMessage(`已登记 ${result.model.name}${result.becameDefault ? "（已设为默认）" : ""}`);
+      setMessage(
+        result.alreadyRegistered
+          ? `该 checkpoint 已登记过：${result.model.name}`
+          : `已登记 ${result.model.name}${result.becameDefault ? "（已设为默认）" : ""}`,
+      );
+      await refreshRegistered();
     } catch (e) {
       setError(toErrorText(e));
     }
@@ -260,11 +280,16 @@ export function TrainingPage() {
                   <td className="px-3 py-1.5 tabular text-muted">{formatBytes(checkpoint.bytes)}</td>
                   <td className="px-3 py-1.5 text-muted">{checkpoint.modified}</td>
                   <td className="px-3 py-1.5 text-right">
-                    {!checkpoint.smoke && (
-                    <Button size="sm" onClick={() => void register(checkpoint)}>
-                      登记为模型
-                    </Button>
-                  )}
+                    {!checkpoint.smoke &&
+                    (registeredPaths.has(checkpoint.path.replace(/\\/g, "/").toLowerCase()) ? (
+                      <span className="rounded border border-line px-2 py-0.5 text-[11px] text-muted">
+                        已登记
+                      </span>
+                    ) : (
+                      <Button size="sm" onClick={() => void register(checkpoint)}>
+                        登记为模型
+                      </Button>
+                    ))}
                   </td>
                 </tr>
               ))}

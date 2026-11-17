@@ -114,6 +114,13 @@ pub fn get(conn: &Connection, id: &str) -> AppResult<Option<ModelCard>> {
     Ok(conn.query_row(&sql, [id], map).optional()?)
 }
 
+pub fn find_by_path(conn: &Connection, path: &str) -> AppResult<Option<ModelCard>> {
+    let sql = format!("SELECT {COLUMNS} FROM models WHERE path = ?1 LIMIT 1");
+    let mut stmt = conn.prepare(&sql)?;
+    let row = stmt.query_row([path], map).optional()?;
+    Ok(row)
+}
+
 pub fn find_by_sha(conn: &Connection, sha: &str) -> AppResult<Option<ModelCard>> {
     let sql = format!("SELECT {COLUMNS} FROM models WHERE sha256 = ?1");
     Ok(conn.query_row(&sql, [sha], map).optional()?)

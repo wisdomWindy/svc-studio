@@ -69,6 +69,7 @@ export interface CheckpointInfo {
 }
 
 export interface RegisterModelResult {
+  alreadyRegistered: boolean;
   model: ModelCard;
   becameDefault: boolean;
 }

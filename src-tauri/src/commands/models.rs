@@ -23,6 +23,8 @@ pub struct RegisterModelInput {
 pub struct RegisterModelOutput {
     pub model: ModelCard,
     pub became_default: bool,
+    /// 该 checkpoint 之前已登记过（幂等返回）。
+    pub already_registered: bool,
 }
 
 /// `G_2400.pth` → 2400；其它命名返回 None（不允许登记无法解析步数的文件）。
@@ -100,6 +102,18 @@ pub fn register_model(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    // 同一个 checkpoint 重复登记：直接返回已有记录，不重复插入
+    if let Some(existing) = state
+        .db
+        .with(|c| crate::core::repo::models::find_by_path(c, &input.checkpoint))?
+    {
+        return Ok(RegisterModelOutput {
+            model: existing,
+            became_default: false,
+            already_registered: true,
+        });
+    }
+
     let sha256 = crate::infra::fs::sha256_file(&checkpoint)?;
     let bytes = std::fs::metadata(&checkpoint).ok().map(|m| m.len() as i64);
     let name = input
@@ -151,6 +165,7 @@ pub fn register_model(
     Ok(RegisterModelOutput {
         model: card,
         became_default,
+        already_registered: false,
     })
 }
 
