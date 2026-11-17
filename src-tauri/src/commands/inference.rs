@@ -398,7 +398,7 @@ pub fn infer_start(
     let job_for_task = job.clone();
     let params_json_for_task = params_text.clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut handle = match crate::bridge::host::spawn(spec) {
             Ok(h) => h,
             Err(err) => {

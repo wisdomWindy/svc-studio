@@ -1666,3 +1666,42 @@ config sha256 已生成
 ### 质量门
 
 cargo test 120 / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 修复预处理时程序自动退出（tokio::spawn panic）
+
+### 根因
+
+崩溃日志（`logs/app.log`，panic hook 抓到的）：
+
+```
+PANIC: panicked at src\commands\preprocess.rs:186:5:
+there is no reactor running, must be called from the context of a Tokio 1.x runtime
+PANIC: panic in a function that cannot unwind
+```
+
+`preprocess_start` / `train_start` / `infer_start` 都是**同步** `#[tauri::command]`，
+却直接调用 `tokio::spawn`。同步 command 在 Tauri 的线程池里执行，没有 Tokio reactor →
+panic → `panic in a function that cannot unwind` → 进程直接终止（窗口子系统下表现为"闪退"）。
+
+### 修复
+
+三个命令改为 `tauri::async_runtime::spawn`（从任何线程都安全）。
+另加回归测试 `spawn_guard::start_commands_do_not_use_tokio_spawn`：
+检查这三个文件里不再出现 `tokio::spawn`，防止以后再写回去。
+
+### 实测
+
+用安装版（234.6MB）走真实 UI 流程：
+
+| 步骤 | 结果 |
+| --- | --- |
+| 环境自检 | 9 项全过，可训练 |
+| 点「开始预处理」 | 任务 `job_01a1e94218bd…` **succeeded**（10.6s），无崩溃 |
+| 进程 | 预处理结束后应用仍在运行（alive True），日志 **PANIC 0 条** |
+| 产物 | `preprocess_manifest.json` 更新（19:26:35），计数 5/5/5/5 一致 |
+
+之前几次同类任务状态都是 `interrupted`（就是崩溃留下的），这次是 `succeeded`。
+
+### 质量门
+
+cargo test **121** / pytest 105 / vitest 38 / clippy 0 / `check.ps1` PASS。

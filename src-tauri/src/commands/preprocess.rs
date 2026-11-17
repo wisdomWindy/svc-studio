@@ -183,7 +183,7 @@ pub fn preprocess_start(
     let dataset_for_task = dataset_id.clone();
     let root_for_task = root.clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let _gpu = scheduler.acquire().await;
 
         let args = vec![

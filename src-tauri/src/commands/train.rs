@@ -421,7 +421,7 @@ pub fn train_start(
     let root_for_task = root.clone();
     let kind_for_task = kind.clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         // 同一时刻只允许一个吃显存的作业；排队期间任务保持 running（进度 0）。
         let _gpu = scheduler.acquire().await;
 
