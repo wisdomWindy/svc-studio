@@ -74,6 +74,33 @@ pub fn pick_upstream(dir: &Path) -> Option<PathBuf> {
         .find(|p| p.join("resample.py").is_file())
 }
 
+/// 内置 ffmpeg：安装目录 `resources/bin/ffmpeg.exe`，或数据目录 `bin/ffmpeg.exe`。
+/// 找不到时返回空串，worker 会回落到 PATH。
+pub fn resolve_ffmpeg() -> PathBuf {
+    if let Ok(raw) = std::env::var("SVCSTUDIO_FFMPEG") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let path = PathBuf::from(trimmed);
+            if path.is_file() {
+                return path;
+            }
+        }
+    }
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = exe_dir() {
+        candidates.push(dir.join("resources").join("bin").join("ffmpeg.exe"));
+        candidates.push(dir.join("resources").join("ffmpeg.exe"));
+    }
+    if let Ok(root) = crate::error::data_root() {
+        candidates.push(root.join("bin").join("ffmpeg.exe"));
+        candidates.push(root.join("ffmpeg.exe"));
+    }
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .unwrap_or_default()
+}
+
 pub fn worker_env(worker_dir: &Path) -> Vec<(String, String)> {
     let upstream = resolve_upstream_dir();
     // 只允许 worker 与上游进入 PYTHONPATH：不继承宿主环境，避免把系统 Python 的
@@ -94,6 +121,10 @@ pub fn worker_env(worker_dir: &Path) -> Vec<(String, String)> {
             resolve_upstream_dir().to_string_lossy().to_string(),
         ),
         ("SVCSTUDIO_RUNTIME_KIND".to_string(), "gpu".to_string()),
+        (
+            "SVCSTUDIO_FFMPEG".to_string(),
+            resolve_ffmpeg().to_string_lossy().to_string(),
+        ),
     ]
 }
 

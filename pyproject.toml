@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "svc-bridge"
+version = "0.1.0"
+description = "Execution layer for SVC Studio: runs so-vits-svc steps as isolated jobs"
+requires-python = ">=3.8"
+
+[tool.setuptools.packages.find]
+include = ["svc_bridge*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.mypy]
+python_version = "3.8"
+strict = true
+warn_unused_ignores = true

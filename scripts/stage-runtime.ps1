@@ -23,7 +23,9 @@ Write-Host ("- assets/manifest.json: " + (Test-Path "assets/manifest.json"))
 
 if ($missing.Count -gt 0) {
   Write-Host ("缺少：" + ($missing -join "，") + "。先运行 scripts/build-runtime.ps1，或仅做开发构建。") -ForegroundColor Yellow
-  if (-not $DryRun) { throw "staging 前置不满足" }
+  if (-not $DryRun) {
+    Write-Warning "缺少 runtime：跳过运行时 staging（瘦安装包不需要）；仍会 stage vendor / assets / ffmpeg"
+  }
 }
 
 Write-Step "计划"
@@ -41,11 +43,16 @@ if ($DryRun) {
 if (Test-Path $resources) { Remove-Item -Recurse -Force $resources }
 New-Item -ItemType Directory -Force -Path $resources | Out-Null
 
-Copy-Item -Recurse -Force "runtime" (Join-Path $resources "runtime")
-# runtime/worker 可能是构建时的旧副本：用源码覆盖，避免"装的是旧版 worker"
-$stagedWorker = Join-Path $resources "runtime/worker"
-if (Test-Path $stagedWorker) { Remove-Item -Recurse -Force $stagedWorker }
-New-Item -ItemType Directory -Force -Path $stagedWorker | Out-Null
+if (Test-Path "runtime") {
+  Copy-Item -Recurse -Force "runtime" (Join-Path $resources "runtime")
+  # runtime/worker 可能是构建时的旧副本：用源码覆盖，避免"装的是旧版 worker"
+  $stagedWorker = Join-Path $resources "runtime/worker"
+  if (Test-Path $stagedWorker) { Remove-Item -Recurse -Force $stagedWorker }
+  New-Item -ItemType Directory -Force -Path $stagedWorker | Out-Null
+} else {
+  Write-Host "    跳过 runtime（瘦安装包：运行时单独安装）"
+  $stagedWorker = $null
+}
 Copy-Item -Recurse -Force "worker\*" $stagedWorker
 if (Test-Path "vendor/so-vits-svc") {
   Copy-Item -Recurse -Force "vendor/so-vits-svc" (Join-Path $resources "upstream")
@@ -69,3 +76,17 @@ $payload | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $resources "MA
 
 $totalGb = [math]::Round(((Get-ChildItem -Recurse -File $resources | Measure-Object Length -Sum).Sum / 1GB), 2)
 Write-Host "`nstaging 完成：$resources（$($payload.count) 个文件，$totalGb GB）" -ForegroundColor Green
+
+# 内置 ffmpeg（转码需要；没有就现取）
+$ffmpegSrc = Join-Path $root "assets/bin/ffmpeg.exe"
+if (-not (Test-Path $ffmpegSrc)) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts/fetch-ffmpeg.ps1")
+}
+if (Test-Path $ffmpegSrc) {
+  $binDir = Join-Path $root "src-tauri/resources/bin"
+  New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+  Copy-Item $ffmpegSrc (Join-Path $binDir "ffmpeg.exe") -Force
+  Write-Host "    已内置 ffmpeg（$([math]::Round((Get-Item $ffmpegSrc).Length/1MB,1)) MB）"
+} else {
+  Write-Warning "没有找到 ffmpeg，安装包将不含内置 ffmpeg"
+}

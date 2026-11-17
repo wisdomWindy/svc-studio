@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import sys
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -159,7 +160,8 @@ def check_gpu() -> Dict[str, Any]:
 
 
 def check_ffmpeg() -> Dict[str, Any]:
-    path = shutil.which("ffmpeg")
+    bundled = os.environ.get("SVCSTUDIO_FFMPEG", "").strip()
+    path = bundled if bundled and Path(bundled).is_file() else shutil.which("ffmpeg")
     if path:
         return _item("ffmpeg", "pass", "ffmpeg 可用", detail={"path": path})
     return _item(

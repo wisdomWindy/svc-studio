@@ -1489,3 +1489,26 @@ so-vits-svc 本身**不含**音频分离，官方做法是先用 UVR5 分离人�
 ### 质量门
 
 cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。
+
+## 2026-11-17 · 内置 ffmpeg（安装包自带，不依赖系统 PATH）
+
+### 改动
+
+- `scripts/fetch-ffmpeg.ps1`：优先复用本机 ffmpeg，否则从 gyan.dev 下载 essentials 版，缓存到 `assets/bin/`；
+- `stage-runtime.ps1`：把 ffmpeg 复制进 `src-tauri/resources/bin/ffmpeg.exe`；缺少 runtime 时不再抛错（瘦安装包不需要运行时）；
+- `tauri.conf.json`：`bundle.resources = ["resources/bin/*"]`，瘦安装包也会带上 ffmpeg；
+- Rust `resolve_ffmpeg()`：查 `resources/bin/ffmpeg.exe` → `resources/ffmpeg.exe` → 数据目录 `bin/`，并通过 `SVCSTUDIO_FFMPEG` 传给 worker；
+- doctor 的 ffmpeg 检查优先用 `SVCSTUDIO_FFMPEG`（顺带补上缺失的 `Path` 导入——之前会 `NameError`）。
+
+### 实测
+
+| 项 | 结果 |
+| --- | --- |
+| 安装包 | 211.7 MB → **232.4 MB**（ffmpeg 79MB，压缩后约 +20MB） |
+| 安装后 | `resources/bin/ffmpeg.exe` 存在（79MB） |
+| **PATH 只剩 C:\Windows\system32 时** | doctor `ffmpeg` → **pass**，路径 `D:\program\svcstudio\resources\bin\ffmpeg.exe` |
+| 整体自检 | **pass 9 / warn 0 / fail 0，trainable=True** |
+
+### 质量门
+
+cargo test 120 / pytest 105 / vitest 35 / clippy 0 / `check.ps1` PASS。

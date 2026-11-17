@@ -57,6 +57,9 @@
         "installerHooks": "nsis-hooks.nsh",
         "compression": "lzma"
       }
-    }
+    },
+    "resources": [
+      "resources/bin/*"
+    ]
   }
 }
