@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
+import { listen } from "@tauri-apps/api/event";
 import { backend, type BootstrapInfo, type DoctorReport } from "@/lib/backend";
 import { toErrorText } from "@/lib/errors";
 
@@ -15,6 +16,8 @@ const LABEL: Record<string, string> = { pass: "通过", warn: "警告", fail: "�
 export function SettingsPage() {
   const [boot, setBoot] = useState<BootstrapInfo | null>(null);
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
+  const [weightsBusy, setWeightsBusy] = useState(false);
+  const [weightsStage, setWeightsStage] = useState<string>("")
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +36,35 @@ export function SettingsPage() {
       })
       .catch(() => undefined);
   }, []);
+
+  async function downloadWeights() {
+    setWeightsBusy(true);
+    setWeightsStage("准备中…");
+    const unlisten = await listen<{ stage: string; label?: string; index?: number; total?: number; message?: string }>(
+      "weights-progress",
+      (event) => {
+        const p = event.payload;
+        if (p.stage === "error") {
+          setError(p.message ?? "权重下载失败");
+          setWeightsBusy(false);
+        } else if (p.stage === "done") {
+          setWeightsBusy(false);
+          setWeightsStage("");
+          setMessage("权重已补齐，请重新环境自检");
+          void runDoctor();
+        } else {
+          setWeightsStage(`${p.label ?? ""} ${p.index ?? 0}/${p.total ?? 0}`);
+        }
+      },
+    );
+    try {
+      await backend.downloadMissingWeights();
+    } catch (e) {
+      setError(toErrorText(e));
+      setWeightsBusy(false);
+      unlisten();
+    }
+  }
 
   async function runDoctor() {
     setBusy(true);
@@ -79,6 +111,9 @@ export function SettingsPage() {
           <div className="flex gap-2">
             <Button disabled={busy} onClick={() => void runDoctor()}>
               {busy ? "检查中…" : "环境自检"}
+            </Button>
+            <Button disabled={busy || weightsBusy} onClick={() => void downloadWeights()}>
+              {weightsBusy ? weightsStage || "下载中…" : "下载缺失权重"}
             </Button>
             <Button disabled={busy} onClick={() => void exportDiagnostics()}>
               导出诊断包

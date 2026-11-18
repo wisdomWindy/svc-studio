@@ -240,6 +240,8 @@ export const backend = {
     ),
 
   /// 立即返回；进度与结果通过 runtime-progress 事件回传
+  downloadMissingWeights: () => call<void>("download_missing_weights"),
+  missingWeights: () => call<string[]>("missing_weights"),
   installRuntimeFromRelease: () => call<void>("install_runtime_from_release"),
   doctorCached: () =>
     call<{ trainable: boolean; blocking: string[] } | null>("doctor_cached"),

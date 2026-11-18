@@ -266,6 +266,8 @@ pub fn run() {
             commands::runtime_setup::runtime_setup_status,
             commands::runtime_setup::install_runtime_from_zip,
             commands::runtime_download::install_runtime_from_release,
+            commands::weights::download_missing_weights,
+            commands::weights::missing_weights,
             commands::settings::accept_consents,
             commands::assets::assets_manifest,
             commands::assets::import_asset_dir,
