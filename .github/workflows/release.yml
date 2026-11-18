@@ -82,7 +82,14 @@ jobs:
           rm -rf src-tauri/resources/upstream/.git
           cp assets/manifest.json src-tauri/resources/assets/
           echo "ffmpeg 由系统提供" > src-tauri/resources/bin/README.txt
-      - run: pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}'
+      - name: Build dmg (retry once: hdiutil 偶发 Resource busy)
+        run: |
+          set -e
+          pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}' && exit 0
+          echo "first attempt failed, cleaning stale mounts and retrying"
+          hdiutil info | awk '/^\/dev\/disk/ {print $1}' | while read d; do diskutil unmountDisk force "$d" 2>/dev/null || true; done
+          sleep 15
+          pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}'
       - name: Upload dmg
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
