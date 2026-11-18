@@ -89,9 +89,37 @@ jobs:
         run: gh release upload "$TAG" src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg --clobber
 
 
+  runtime:
+    name: build python runtime
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      SVCSTUDIO_FAIRSEQ_WHEEL_URL: https://github.com/wisdomWindy/svc-studio/releases/download/runtime-deps/fairseq_fixed-0.12.3.1-cp313-cp313-win_amd64.whl
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime (python 3.13 + torch cu128 + prebuilt fairseq wheel)
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-runtime.ps1
+      - name: Pack assets (zip + 100MB parts + manifest)
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart("v")
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/make-runtime-assets.ps1 -Version $version -OutDir runtime-assets
+      - name: Upload runtime assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          foreach ($f in Get-ChildItem runtime-assets/*) {
+            gh release upload $env:TAG $f.FullName --clobber
+            if ($LASTEXITCODE -ne 0) { throw "upload failed: $($f.Name)" }
+          }
+
   publish:
     name: publish release
-    needs: [windows, macos]
+    needs: [windows, macos, runtime]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

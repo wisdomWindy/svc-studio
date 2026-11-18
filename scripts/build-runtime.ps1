@@ -107,11 +107,27 @@ Write-Host "==> 安装其余依赖"
   "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
 if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
 
-Write-Host "==> 安装 fairseq-fixed（用已装好的 torch + Python 头文件，禁用隔离构建）"
+Write-Host "==> 安装 fairseq-fixed"
 $env:INCLUDE = Join-Path $out "include"
 $env:LIB = Join-Path $out "libs"
-& $python -m pip install --no-warn-script-location --no-build-isolation -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn "fairseq-fixed==0.12.3.1"
-if ($LASTEXITCODE -ne 0) { throw "fairseq-fixed 安装失败" }
+# 优先安装预编译 wheel（含 libbleu/libnat 的 .pyd），把 C++ 编译从 CI 里彻底去掉
+$installed = $false
+if ($env:SVCSTUDIO_FAIRSEQ_WHEEL_URL) {
+  $whl = Join-Path $wheelDir "fairseq_fixed-0.12.3.1-cp313-cp313-win_amd64.whl"
+  if (-not (Test-Path $whl)) {
+    Write-Host "    下载预编译 wheel"
+    & curl.exe -L --fail --retry 3 --retry-delay 2 -o $whl $env:SVCSTUDIO_FAIRSEQ_WHEEL_URL
+  }
+  if ((Test-Path $whl) -and (Get-Item $whl).Length -gt 1MB) {
+    & $python -m pip install --no-warn-script-location --no-deps --force-reinstall $whl
+    if ($LASTEXITCODE -eq 0) { $installed = $true; Write-Host "    已安装预编译 wheel" }
+  }
+}
+if (-not $installed) {
+  Write-Host "    回退到源码构建"
+  & $python -m pip install --no-warn-script-location --no-build-isolation -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn "fairseq-fixed==0.12.3.1"
+  if ($LASTEXITCODE -ne 0) { throw "fairseq-fixed 安装失败" }
+}
 
 Write-Host "==> 补丁：fairseq 的 torch.load 需要 weights_only=False"
 $ckpt = Join-Path $out "Lib\site-packages\fairseq\checkpoint_utils.py"
