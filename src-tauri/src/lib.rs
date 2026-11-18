@@ -15,6 +15,44 @@ use crate::core::scheduler::Scheduler;
 use crate::infra::db::{now_iso, Db};
 
 /// 首次启动把随包清单放进数据目录（不覆盖用户已导入的版本）。
+/// 安装包内置了编码器/F0/声码器权重；首次启动复制到数据目录，用户不需要再下载。
+fn seed_pretrain(root: &std::path::Path) {
+    let Some(bundled) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.join("resources").join("pretrain")))
+        .filter(|p| p.is_dir())
+    else {
+        return;
+    };
+    let target = root.join("pretrain");
+    let items = [
+        ("checkpoint_best_legacy_500.pt", 1024),
+        ("rmvpe.pt", 1024),
+        ("nsf_hifigan/model", 1024),
+        ("nsf_hifigan/config.json", 16),
+    ];
+    for (rel, min) in items {
+        let dst = target.join(rel);
+        let ok = std::fs::metadata(&dst)
+            .map(|m| m.len() as usize >= min as u64 as usize)
+            .unwrap_or(false);
+        if ok {
+            continue;
+        }
+        let src = bundled.join(rel);
+        if !src.is_file() {
+            break;
+        }
+        if let Some(parent) = dst.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::copy(&src, &dst) {
+            Ok(_) => tracing::info!(file = rel, "builtin pretrain seeded"),
+            Err(err) => tracing::warn!(%err, file = rel, "seed pretrain failed"),
+        }
+    }
+}
+
 fn seed_manifest(root: &std::path::Path) {
     let target = root.join("assets").join("manifest.json");
     if target.exists() {
@@ -55,6 +93,7 @@ fn init_state() -> Result<AppPaths, String> {
     for dir in ["projects", "models", "assets", "logs", "tmp"] {
         std::fs::create_dir_all(root.join(dir)).map_err(|e| e.to_string())?;
     }
+    seed_pretrain(&root);
     seed_manifest(&root);
     let mut db = Db::open(&root.join("studio.db")).map_err(|e| e.to_string())?;
     db.migrate().map_err(|e| e.to_string())?;

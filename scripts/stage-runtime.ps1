@@ -60,6 +60,30 @@ if (Test-Path "vendor/so-vits-svc") {
 New-Item -ItemType Directory -Force -Path (Join-Path $resources "assets") | Out-Null
 Copy-Item -Force "assets/manifest.json" (Join-Path $resources "assets/manifest.json")
 
+Write-Step "内置权重（编码器 / F0 / 声码器）"
+$pretrainOut = Join-Path $resources "pretrain"
+New-Item -ItemType Directory -Force -Path (Join-Path $pretrainOut "nsf_hifigan") | Out-Null
+$weights = @(
+  @{ name = "checkpoint_best_legacy_500.pt"; url = "https://hf-mirror.com/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt" },
+  @{ name = "rmvpe.pt"; url = "https://hf-mirror.com/datasets/ylzz1997/rmvpe_pretrain_model/resolve/main/rmvpe.pt" },
+  @{ name = "nsf_hifigan/model"; url = "https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/model" },
+  @{ name = "nsf_hifigan/config.json"; url = "https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/config.json" }
+)
+foreach ($w in $weights) {
+  $out = Join-Path $pretrainOut $w.name
+  if ((Test-Path $out) -and (Get-Item $out).Length -gt 1024) { continue }
+  $cached = Join-Path "D:\program\svcstudio\data\pretrain" $w.name
+  if (Test-Path $cached) {
+    Copy-Item $cached $out -Force
+    Write-Host "    复用本机权重：$($w.name)"
+    continue
+  }
+  Write-Host "    下载权重：$($w.name)"
+  & curl.exe -L --fail --retry 3 --silent --show-error -o $out $w.url
+  if ($LASTEXITCODE -ne 0) { throw "权重下载失败：$($w.name)" }
+}
+Write-Host ("    权重合计 " + [math]::Round((Get-ChildItem -Recurse -File $pretrainOut | Measure-Object Length -Sum).Sum/1MB,0) + " MB")
+
 Write-Step "生成 MANIFEST.json"
 $entries = Get-ChildItem -Recurse -File $resources |
   Where-Object { $_.FullName -notmatch "__pycache__|\.pyc$" }
