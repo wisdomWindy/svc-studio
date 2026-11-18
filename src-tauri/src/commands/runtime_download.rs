@@ -82,16 +82,55 @@ fn download_file(url: &str, dest: &Path, resume: bool) -> AppResult<()> {
         args.push("-C".into());
         args.push("-".into());
     }
+    if let Some(proxy) = proxy_arg() {
+        args.push("--proxy".into());
+        args.push(proxy);
+    }
+    args.push("--http1.1".into());
     args.push(url.to_string());
     let status = run_curl(&args)?;
     if !status.success() {
         return Err(Box::new(AppError::new(
             "SVC-5001",
             "下载失败",
-            format!("{url}（curl 退出码 {:?}）", status.code()),
+            format!(
+                "{url}（curl 退出码 {:?}；若网络受限，请设置 HTTPS_PROXY 后重试）",
+                status.code()
+            ),
+        )));
+    }
+    let size = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    if size == 0 {
+        return Err(Box::new(AppError::new(
+            "SVC-5001",
+            "下载内容为空",
+            format!("{url} 返回 0 字节，通常是网络被拦截或代理未生效"),
         )));
     }
     Ok(())
+}
+
+/// curl 不读 Windows 的 WinINET 代理设置：先看环境变量，再探测常见本地代理端口。
+fn proxy_arg() -> Option<String> {
+    for key in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
+        if let Ok(v) = std::env::var(key) {
+            let v = v.trim().to_string();
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    for port in [7897u16, 7890, 10809, 1080] {
+        if std::net::TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+            std::time::Duration::from_millis(150),
+        )
+        .is_ok()
+        {
+            return Some(format!("http://127.0.0.1:{port}"));
+        }
+    }
+    None
 }
 
 /// 启动后台安装任务并立即返回。
@@ -159,14 +198,15 @@ async fn install_inner(
             format!("{e}；可手动从 Release 页面下载分卷"),
         ))
     })?;
-    let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest_path)?)
-        .map_err(|e| {
-            Box::new(AppError::new(
-                "SVC-5001",
-                "运行时清单格式错误",
-                e.to_string(),
-            ))
-        })?;
+    let raw = std::fs::read(&manifest_path)?;
+    let head = String::from_utf8_lossy(&raw[..raw.len().min(160)]).to_string();
+    let manifest: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| {
+        Box::new(AppError::new(
+            "SVC-5001",
+            "运行时清单格式错误",
+            format!("{e}；返回内容开头：{}", head.trim()),
+        ))
+    })?;
 
     let parts = manifest
         .get("parts")

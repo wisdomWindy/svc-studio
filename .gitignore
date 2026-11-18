@@ -70,3 +70,6 @@ docs/
 # 仓库根目录的 worker 副本（构建脚本误复制，忽略）
 /svc_bridge/
 /tests/
+
+# 运行时发布资产（本地生成，不入库）
+/runtime-dist/
