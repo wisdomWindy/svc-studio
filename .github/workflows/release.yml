@@ -77,7 +77,7 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: SVC Studio ${{ github.event.inputs.tag || github.ref_name }}
-          draft: true
+          draft: false
           prerelease: false
           fail_on_unmatched_files: false
           files: dist/**/*
