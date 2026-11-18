@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "release tag, e.g. v0.1.13"
+        description: "release tag, e.g. v0.1.14"
         required: true
 
 permissions:
@@ -21,13 +21,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Create draft if missing
+      - name: Write release notes with per-platform download links
+        run: |
+          set -e
+          V="${TAG#v}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          cat > notes.md <<EOF
+          ## SVC Studio ${V}
+
+          ### 下载（按平台选择）
+
+          | 平台 | 安装包 | 说明 |
+          | --- | --- | --- |
+          | **Windows 10/11 x64** | [下载 Windows 安装包（.exe）](${BASE}/SVC.Studio_${V}_x64-setup.exe) | NSIS 安装器，内置 ffmpeg |
+          | **macOS Intel + Apple Silicon** | [下载 macOS 安装包（.dmg）](${BASE}/SVC.Studio_${V}_universal.dmg) | Universal 二进制，一个包通用 |
+
+          点表格里的链接即可直接下载对应平台的安装包。
+
+          ### 首次启动
+
+          安装包**不含 Python 运行时**（约 3.6GB，37 个分卷）。首次启动会出现「先安装内置运行时」向导：
+
+          1. 点 **自动下载运行时**（断点续传 + 逐卷 sha256 校验 + 自动解压）；
+          2. 或点 **选择本地 zip**，指定已下载的运行时压缩包。
+
+          ### 已知限制
+
+          - 训练仅 Windows + NVIDIA GPU（≥6GB 显存）；macOS 仅预处理与 CPU 推理
+          - macOS 包未签名、未公证，首次打开请右键 →「打开」
+          - 升级/卸载会删除安装目录内的 \`projects/\`，请先自行备份
+          - 音质取决于素材量：30 秒只够验证链路，可用音色建议 30 分钟以上干声
+
+          许可证：AGPL-3.0（含 so-vits-svc 4.1-Stable 源码）
+          EOF
+          echo "--- notes preview ---"
+          cat notes.md
+      - name: Create or update draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "SVC Studio ${TAG#v}" --notes "auto release" --draft
+          V="${TAG#v}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "SVC Studio ${V}" --notes-file notes.md
+          else
+            gh release create "$TAG" --title "SVC Studio ${V}" --notes-file notes.md --draft
+          fi
 
   windows:
     name: build windows installer
