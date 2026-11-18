@@ -30,12 +30,12 @@ tmp/
 .devdata/
 
 # 模型权重与数据集（绝不入库）
-pretrain/
-logs/
-dataset/
-dataset_raw/
-raw/
-results/
+/pretrain/
+/logs/
+/dataset/
+/dataset_raw/
+/raw/
+/results/
 *.pth
 *.pt
 *.onnx
