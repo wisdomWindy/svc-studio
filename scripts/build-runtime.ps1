@@ -62,13 +62,7 @@ $getPip = Join-Path $out "get-pip.py"
 if ($LASTEXITCODE -ne 0) { throw "setuptools/wheel 安装失败" }
 if ($LASTEXITCODE -ne 0) { throw "pip 安装失败" }
 
-Write-Host "==> 安装训练/推理依赖（先装，避免它们把 torch 降级）"
-& $python -m pip install --no-warn-script-location -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
-  "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
-  "fairseq-fixed==0.12.3.1" "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
-if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
-
-Write-Host "==> 准备 cu128 轮子（缓存缺失时从镜像下载）"
+Write-Host "==> 准备 cu128 轮子（fairseq-fixed 构建时要 import torch，必须先装 torch）"
 $torchWheel = Join-Path $wheelDir "torch-2.8.0+cu128-cp313-cp313-win_amd64.whl"
 $audioWheel = Join-Path $wheelDir "torchaudio-2.8.0+cu128-cp313-cp313-win_amd64.whl"
 if (-not (Test-Path $torchWheel)) {
@@ -81,9 +75,19 @@ if (-not (Test-Path $audioWheel)) {
   if ($LASTEXITCODE -ne 0) { throw "torchaudio 轮子下载失败" }
 }
 
-Write-Host "==> 强制安装 cu128 版 torch/torchaudio（覆盖依赖带来的 CPU 版）"
-& $python -m pip install --no-warn-script-location --no-deps --force-reinstall --find-links $wheelDir "torch==2.8.0+cu128" "torchaudio==2.8.0+cu128"
+Write-Host "==> 安装 cu128 版 torch/torchaudio"
+& $python -m pip install --no-warn-script-location --no-deps --find-links $wheelDir "torch==2.8.0+cu128" "torchaudio==2.8.0+cu128"
 if ($LASTEXITCODE -ne 0) { throw "cu128 torch 安装失败" }
+
+Write-Host "==> 安装其余依赖"
+& $python -m pip install --no-warn-script-location -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
+  "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
+  "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
+if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
+
+Write-Host "==> 安装 fairseq-fixed（用已装好的 torch，禁用隔离构建）"
+& $python -m pip install --no-warn-script-location --no-build-isolation -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn "fairseq-fixed==0.12.3.1"
+if ($LASTEXITCODE -ne 0) { throw "fairseq-fixed 安装失败" }
 
 Write-Host "==> 补丁：fairseq 的 torch.load 需要 weights_only=False"
 $ckpt = Join-Path $out "Lib\site-packages\fairseq\checkpoint_utils.py"
