@@ -6,15 +6,38 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "发布到哪个 tag（例：v0.1.1）"
+        description: "发布到哪个 tag（例：v0.1.3）"
         required: true
 
 permissions:
   contents: write
 
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
+  prepare:
+    name: prepare draft release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - id: tag
+        run: echo "value=${{ env.TAG }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+      - name: Create draft if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ env.TAG }}" >/dev/null 2>&1 || \
+            gh release create "${{ env.TAG }}" \
+              --title "SVC Studio ${{ env.TAG }}" \
+              --notes "自动发布：安装包 + 运行时包（每次发版重新构建运行时）。" \
+              --draft
+
   windows:
-    name: build (windows-x64)
+    name: build windows installer
+    needs: prepare
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -30,14 +53,15 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-runtime.ps1
       - run: pnpm tauri build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-x64
-          path: src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: error
+      - name: Upload installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload $env:TAG (Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe).FullName --clobber
 
   macos:
-    name: build (macos-universal)
+    name: build macos dmg
+    needs: prepare
     runs-on: macos-15
     timeout-minutes: 90
     steps:
@@ -59,25 +83,38 @@ jobs:
           cp assets/manifest.json src-tauri/resources/assets/
           echo "ffmpeg 由系统提供" > src-tauri/resources/bin/README.txt
       - run: pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-universal
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-          if-no-files-found: error
+      - name: Upload dmg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg --clobber
+
+  runtime:
+    name: build python runtime
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime (python 3.13 + torch cu128 + demucs)
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-runtime.ps1
+      - name: Pack assets (zip + parts + manifest)
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart("v")
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/make-runtime-assets.ps1 -Version $version -OutDir dist
+      - name: Upload runtime assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload $env:TAG (Get-ChildItem dist/*).FullName --clobber
 
   publish:
-    needs: [windows, macos]
+    name: publish release
+    needs: [windows, macos, runtime]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: SVC Studio ${{ github.event.inputs.tag || github.ref_name }}
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: false
-          files: dist/**/*
+      - name: Flip draft to published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$TAG" --draft=false --prerelease=false
