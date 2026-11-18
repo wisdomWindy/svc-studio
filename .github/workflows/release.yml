@@ -23,14 +23,10 @@ jobs:
             os: windows-latest
             args: ""
             artifact: "SVC Studio_*_x64-setup.exe"
-          - platform: macos-intel
-            os: macos-13
-            args: "--target x86_64-apple-darwin --bundles dmg"
-            artifact: "SVC Studio_*_x64.dmg"
-          - platform: macos-silicon
+          - platform: macos-universal
             os: macos-14
-            args: "--target aarch64-apple-darwin --bundles dmg"
-            artifact: "SVC Studio_*_aarch64.dmg"
+            args: "--target universal-apple-darwin --bundles dmg"
+            artifact: "SVC Studio_*_universal.dmg"
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -47,7 +43,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-intel' && 'x86_64-apple-darwin' || matrix.platform == 'macos-silicon' && 'aarch64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-universal' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
@@ -55,7 +51,7 @@ jobs:
       # 只打包 ffmpeg 与上游源码（运行时由用户端构建/下载，不进安装包）
       - name: Stage resources
         shell: pwsh
-        run: ./scripts/stage-runtime.ps1
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-runtime.ps1
         if: runner.os == 'Windows'
 
       - name: Stage resources (macOS)
