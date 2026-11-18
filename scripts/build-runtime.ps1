@@ -120,7 +120,14 @@ if ($env:SVCSTUDIO_FAIRSEQ_WHEEL_URL) {
   }
   if ((Test-Path $whl) -and (Get-Item $whl).Length -gt 1MB) {
     & $python -m pip install --no-warn-script-location --no-deps --force-reinstall $whl
-    if ($LASTEXITCODE -eq 0) { $installed = $true; Write-Host "    已安装预编译 wheel" }
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "    补 fairseq 运行时依赖（不含 torch/torchaudio）"
+      & $python -m pip install --no-warn-script-location -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
+        "cffi" "cython" "regex" "sacrebleu>=1.4.12" "tqdm" "bitarray" "packaging"
+      if ($LASTEXITCODE -ne 0) { throw "fairseq 依赖安装失败" }
+      $installed = $true
+      Write-Host "    已安装预编译 wheel + 依赖"
+    }
   }
 }
 if (-not $installed) {
