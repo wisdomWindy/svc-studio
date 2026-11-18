@@ -1,10 +1,14 @@
-name: macos-probe
+name: runner-probe
 
 on:
   workflow_dispatch:
 
 jobs:
   probe:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-15, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
-      - run: sw_vers && uname -m && echo macos-ok
+      - run: echo "runner=${{ matrix.os }}" && uname -a
