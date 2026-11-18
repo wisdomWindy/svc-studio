@@ -66,3 +66,7 @@ docs/requests/*/evidence/**/*.exe
 
 # 需求/验收文档只在本地保留
 docs/
+
+# 仓库根目录的 worker 副本（构建脚本误复制，忽略）
+/svc_bridge/
+/tests/
