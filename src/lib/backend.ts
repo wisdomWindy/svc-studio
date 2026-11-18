@@ -239,10 +239,8 @@ export const backend = {
       { zipPath },
     ),
 
-  installRuntimeFromRelease: () =>
-    call<{ ready: boolean; pythonPath: string | null; bytes: number }>(
-      "install_runtime_from_release",
-    ),
+  /// 立即返回；进度与结果通过 runtime-progress 事件回传
+  installRuntimeFromRelease: () => call<void>("install_runtime_from_release"),
   doctorCached: () =>
     call<{ trainable: boolean; blocking: string[] } | null>("doctor_cached"),
   exportDiagnostics: () =>

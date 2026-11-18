@@ -87,12 +87,52 @@ fn download_file(url: &str, dest: &Path, resume: bool) -> AppResult<()> {
     Ok(())
 }
 
+/// 启动后台安装任务并立即返回。
+///
+/// 下载 3.6GB 远超 IPC 的 15 秒超时，所以命令本身只负责启动，
+/// 进度与结果通过 `runtime-progress` 事件回传（stage: done/error）。
 #[tauri::command]
-pub async fn install_runtime_from_release(
-    app: AppHandle,
-    state: State<'_, AppPaths>,
-) -> AppResult<RuntimeInstallStatus> {
+pub fn install_runtime_from_release(app: AppHandle, state: State<'_, AppPaths>) -> AppResult<()> {
     let root = state.data_root.clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match install_inner(handle.clone(), root).await {
+            Ok(status) => {
+                handle
+                    .emit(
+                        "runtime-progress",
+                        serde_json::json!({
+                            "stage": "done",
+                            "percent": 100,
+                            "ready": status.ready,
+                            "pythonPath": status.python_path,
+                        }),
+                    )
+                    .ok();
+            }
+            Err(e) => {
+                handle
+                    .emit(
+                        "runtime-progress",
+                        serde_json::json!({
+                            "stage": "error",
+                            "percent": 0,
+                            "code": e.code,
+                            "message": e.message,
+                            "cause": e.cause,
+                        }),
+                    )
+                    .ok();
+            }
+        }
+    });
+    Ok(())
+}
+
+async fn install_inner(
+    app: AppHandle,
+    root: std::path::PathBuf,
+) -> AppResult<RuntimeInstallStatus> {
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&downloads)?;
 

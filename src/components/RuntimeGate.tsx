@@ -16,6 +16,10 @@ interface Progress {
   stage: string;
   percent: number;
   file?: string;
+  message?: string;
+  cause?: string;
+  code?: string;
+  pythonPath?: string | null;
 }
 
 /**
@@ -44,7 +48,20 @@ export function RuntimeGate({ onReady }: { onReady: () => void }) {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     void listen<Progress>("runtime-progress", (event) => {
-      setProgress(event.payload);
+      const payload = event.payload;
+      setProgress(payload);
+      if (payload.stage === "done") {
+        setBusy(null);
+        setDone(true);
+        onReady();
+      } else if (payload.stage === "error") {
+        setBusy(null);
+        setError(
+          `[${payload.code ?? "SVC-5001"}] ${payload.message ?? "下载失败"}${
+            payload.cause ? `\n${payload.cause}` : ""
+          }`,
+        );
+      }
     }).then((fn) => {
       unlisten = fn;
     });
@@ -58,16 +75,10 @@ export function RuntimeGate({ onReady }: { onReady: () => void }) {
     setError(null);
     setProgress({ stage: "manifest", percent: 0 });
     try {
-      const next = await backend.installRuntimeFromRelease();
-      if (next.ready) {
-        setDone(true);
-        onReady();
-      } else {
-        setError("下载完成但没有找到可用的 python.exe");
-      }
+      // 命令只负责启动，完成后由 runtime-progress(stage=done/error) 通知
+      await backend.installRuntimeFromRelease();
     } catch (e) {
       setError(toErrorText(e));
-    } finally {
       setBusy(null);
     }
   }
