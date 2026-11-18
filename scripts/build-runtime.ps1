@@ -52,6 +52,28 @@ if ($pth) {
 }
 
 $python = Join-Path $out "python.exe"
+Write-Host "==> 补齐 Python 头文件与导入库（fairseq-fixed 需要编译 C 扩展）"
+$headersDone = (Join-Path $out "include\Python.h")
+if (-not (Test-Path $headersDone)) {
+  $nuget = Join-Path $wheelDir "python-nuget.zip"
+  $nugetUrl = "https://www.nuget.org/api/v2/package/python/$pyVer"
+  if (-not (Test-Path $nuget)) {
+    & curl.exe -L --fail --retry 3 --retry-delay 2 -o $nuget $nugetUrl
+    if ($LASTEXITCODE -ne 0) { throw "下载 Python nuget 包失败（需要 include/ 与 libs/）" }
+  }
+  $expand = Join-Path $wheelDir "python-nuget"
+  if (Test-Path $expand) { Remove-Item -Recurse -Force $expand }
+  Expand-Archive -Path $nuget -DestinationPath $expand -Force
+  $tools = Join-Path $expand "tools"
+  Copy-Item -Recurse -Force (Join-Path $tools "include") (Join-Path $out "include")
+  Copy-Item -Recurse -Force (Join-Path $tools "libs") (Join-Path $out "libs")
+  if (-not (Test-Path $headersDone)) { throw "解压后仍找不到 include\Python.h" }
+  Write-Host "    已补齐 include/ 与 libs/"
+}
+$env:INCLUDE = Join-Path $out "include"
+$env:LIB = Join-Path $out "libs"
+$env:PATH = "$(Join-Path $out 'libs');$env:PATH"
+
 Write-Host "==> 安装 pip"
 $getPip = Join-Path $out "get-pip.py"
 & curl.exe -L --fail --silent --show-error -o $getPip "https://bootstrap.pypa.io/get-pip.py"
@@ -85,7 +107,9 @@ Write-Host "==> 安装其余依赖"
   "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
 if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
 
-Write-Host "==> 安装 fairseq-fixed（用已装好的 torch，禁用隔离构建）"
+Write-Host "==> 安装 fairseq-fixed（用已装好的 torch + Python 头文件，禁用隔离构建）"
+$env:INCLUDE = Join-Path $out "include"
+$env:LIB = Join-Path $out "libs"
 & $python -m pip install --no-warn-script-location --no-build-isolation -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn "fairseq-fixed==0.12.3.1"
 if ($LASTEXITCODE -ne 0) { throw "fairseq-fixed 安装失败" }
 
