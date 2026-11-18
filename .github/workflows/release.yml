@@ -88,30 +88,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$TAG" src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg --clobber
 
-  runtime:
-    name: build python runtime
-    needs: prepare
-    runs-on: windows-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build runtime (python 3.13 + torch cu128 + demucs)
-        shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-runtime.ps1
-      - name: Pack assets (zip + parts + manifest)
-        shell: pwsh
-        run: |
-          $version = $env:TAG.TrimStart("v")
-          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/make-runtime-assets.ps1 -Version $version -OutDir dist
-      - name: Upload runtime assets
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload $env:TAG (Get-ChildItem dist/*).FullName --clobber
 
   publish:
     name: publish release
-    needs: [windows, macos, runtime]
+    needs: [windows, macos]
     runs-on: ubuntu-latest
     steps:
       - name: Flip draft to published
