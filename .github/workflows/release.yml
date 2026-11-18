@@ -105,14 +105,17 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:TAG.TrimStart("v")
-          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/make-runtime-assets.ps1 -Version $version -OutDir runtime-assets
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/make-runtime-assets.ps1 -Version $version -OutDir runtime-assets -PartMB 100
+          Remove-Item runtime-assets/*.zip -Force
       - name: Upload runtime assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          foreach ($f in Get-ChildItem runtime-assets/*) {
+          $files = Get-ChildItem runtime-assets/* | Where-Object { $_.Name -notlike "*.zip" }
+          Write-Host "uploading $($files.Count) assets"
+          foreach ($f in $files) {
             gh release upload $env:TAG $f.FullName --clobber
             if ($LASTEXITCODE -ne 0) { throw "upload failed: $($f.Name)" }
           }
