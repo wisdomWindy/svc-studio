@@ -21,8 +21,33 @@ pub enum PretrainLink {
     Failed,
 }
 
+/// 权重目录解析：优先用安装目录内置的 `resources/pretrain`（只读、零复制），
+/// 其次用用户数据根的 `pretrain/`（下载或离线导入的位置）。
+pub fn resolve_pretrain_dir(data_root: &Path) -> std::path::PathBuf {
+    let user = data_root.join("pretrain");
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|dir| dir.join("resources").join("pretrain")));
+
+    let complete = |dir: &Path| {
+        dir.join("checkpoint_best_legacy_500.pt").is_file()
+            && dir.join("rmvpe.pt").is_file()
+            && dir.join("nsf_hifigan").join("model").is_file()
+    };
+    // 用户自己放的更完整就先用它，否则用内置的
+    if complete(&user) {
+        return user;
+    }
+    if let Some(b) = bundled {
+        if b.is_dir() {
+            return b;
+        }
+    }
+    user
+}
+
 pub fn link_pretrain(project_root: &Path, data_root: &Path) -> PretrainLink {
-    let global = data_root.join("pretrain");
+    let global = resolve_pretrain_dir(data_root);
     let local = project_root.join("pretrain");
     if local.exists() {
         return PretrainLink::AlreadyPresent;
