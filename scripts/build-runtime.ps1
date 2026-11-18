@@ -56,6 +56,10 @@ Write-Host "==> 安装 pip"
 $getPip = Join-Path $out "get-pip.py"
 & curl.exe -L --fail --silent --show-error -o $getPip "https://bootstrap.pypa.io/get-pip.py"
 & $python $getPip --no-warn-script-location -i $pipIndex
+
+# Python 3.13 不再自带 setuptools；fairseq-fixed 的构建钩子需要它
+& $python -m pip install --no-warn-script-location -i $pipIndex "setuptools" "wheel"
+if ($LASTEXITCODE -ne 0) { throw "setuptools/wheel 安装失败" }
 if ($LASTEXITCODE -ne 0) { throw "pip 安装失败" }
 
 Write-Host "==> 安装训练/推理依赖（先装，避免它们把 torch 降级）"
