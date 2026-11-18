@@ -12,9 +12,16 @@ use tauri::{AppHandle, Emitter, State};
 use crate::error::{AppError, AppResult};
 use crate::AppPaths;
 
-const MANIFEST_URL: &str =
-    "https://github.com/wisdomWindy/svc-studio/releases/download/v0.1.0/runtime-manifest.json";
-const ASSET_BASE: &str = "https://github.com/wisdomWindy/svc-studio/releases/download/v0.1.0";
+/// 运行时包与安装包同版本发布：每个 Release 都带自己的 runtime 分卷。
+const RUNTIME_TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+
+fn manifest_url() -> String {
+    format!("https://github.com/wisdomWindy/svc-studio/releases/download/{RUNTIME_TAG}/runtime-manifest.json")
+}
+
+fn asset_base() -> String {
+    format!("https://github.com/wisdomWindy/svc-studio/releases/download/{RUNTIME_TAG}")
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,7 +152,7 @@ async fn install_inner(
     // 1) 清单
     let manifest_path = downloads.join("runtime-manifest.json");
     let _ = std::fs::remove_file(&manifest_path);
-    download_file(MANIFEST_URL, &manifest_path, false).map_err(|e| {
+    download_file(&manifest_url(), &manifest_path, false).map_err(|e| {
         Box::new(AppError::new(
             "SVC-5001",
             "无法获取运行时清单",
@@ -201,7 +208,7 @@ async fn install_inner(
             }
         }
         if !ok {
-            let url = format!("{ASSET_BASE}/{name}");
+            let url = format!("{}/{name}", asset_base());
             app.emit(
                 "runtime-progress",
                 serde_json::json!({
