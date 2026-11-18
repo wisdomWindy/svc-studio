@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "发布到哪个 tag（例：v0.1.3）"
+        description: "release tag, e.g. v0.1.13"
         required: true
 
 permissions:
@@ -19,21 +19,15 @@ jobs:
   prepare:
     name: prepare draft release
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.value }}
     steps:
-      - id: tag
-        run: echo "value=${{ env.TAG }}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
       - name: Create draft if missing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release view "${{ env.TAG }}" >/dev/null 2>&1 || \
-            gh release create "${{ env.TAG }}" \
-              --title "SVC Studio ${{ env.TAG }}" \
-              --notes "自动发布：安装包 + 运行时包（每次发版重新构建运行时）。" \
-              --draft
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "SVC Studio ${TAG#v}" --notes "auto release" --draft
 
   windows:
     name: build windows installer
@@ -57,6 +51,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: gh release upload $env:TAG (Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe).FullName --clobber
 
   macos:
@@ -81,20 +76,20 @@ jobs:
           cp -R vendor/so-vits-svc/. src-tauri/resources/upstream/
           rm -rf src-tauri/resources/upstream/.git
           cp assets/manifest.json src-tauri/resources/assets/
-          echo "ffmpeg 由系统提供" > src-tauri/resources/bin/README.txt
-      - name: Build dmg (retry once: hdiutil 偶发 Resource busy)
+          echo "ffmpeg provided by system" > src-tauri/resources/bin/README.txt
+      - name: Build dmg (retry once)
         run: |
           set -e
           pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}' && exit 0
-          echo "first attempt failed, cleaning stale mounts and retrying"
+          echo "retrying after cleaning mounts"
           hdiutil info | awk '/^\/dev\/disk/ {print $1}' | while read d; do diskutil unmountDisk force "$d" 2>/dev/null || true; done
           sleep 15
           pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}'
       - name: Upload dmg
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: gh release upload "$TAG" src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg --clobber
-
 
   runtime:
     name: build python runtime
@@ -105,10 +100,10 @@ jobs:
       SVCSTUDIO_FAIRSEQ_WHEEL_URL: https://github.com/wisdomWindy/svc-studio/releases/download/runtime-deps/fairseq_fixed-0.12.3.1-cp313-cp313-win_amd64.whl
     steps:
       - uses: actions/checkout@v4
-      - name: Build runtime (python 3.13 + torch cu128 + prebuilt fairseq wheel)
+      - name: Build runtime
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-runtime.ps1
-      - name: Pack assets (zip + 100MB parts + manifest)
+      - name: Pack assets
         shell: pwsh
         run: |
           $version = $env:TAG.TrimStart("v")
@@ -137,4 +132,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit "$TAG" --draft=false --prerelease=false -R "$GITHUB_REPOSITORY"
+        run: gh release edit "$TAG" --draft=false --prerelease=false
