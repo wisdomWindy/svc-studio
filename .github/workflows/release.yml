@@ -1,0 +1,102 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "发布到哪个 tag（例：v0.1.1）"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+            args: ""
+            artifact: "SVC Studio_*_x64-setup.exe"
+          - platform: macos-intel
+            os: macos-13
+            args: "--target x86_64-apple-darwin --bundles dmg"
+            artifact: "SVC Studio_*_x64.dmg"
+          - platform: macos-silicon
+            os: macos-14
+            args: "--target aarch64-apple-darwin --bundles dmg"
+            artifact: "SVC Studio_*_aarch64.dmg"
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-intel' && 'x86_64-apple-darwin' || matrix.platform == 'macos-silicon' && 'aarch64-apple-darwin' || '' }}
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      # 只打包 ffmpeg 与上游源码（运行时由用户端构建/下载，不进安装包）
+      - name: Stage resources
+        shell: pwsh
+        run: ./scripts/stage-runtime.ps1
+        if: runner.os == 'Windows'
+
+      - name: Stage resources (macOS)
+        shell: bash
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p src-tauri/resources/upstream src-tauri/resources/assets src-tauri/resources/bin
+          printf "ffmpeg 由用户环境提供；macOS 不内置\n" > src-tauri/resources/bin/README.txt
+          cp -R vendor/so-vits-svc/. src-tauri/resources/upstream/
+          cp assets/manifest.json src-tauri/resources/assets/
+          rm -rf src-tauri/resources/upstream/.git
+
+      - name: Build
+        run: pnpm tauri build ${{ matrix.args }}
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p out
+          find src-tauri/target -path "*bundle*" -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.app" \) -exec cp {} out/ \; 2>/dev/null || true
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SVC Studio ${{ github.ref_name }}
+          prerelease: true
+          fail_on_unmatched_files: false
+          files: dist/**/*
