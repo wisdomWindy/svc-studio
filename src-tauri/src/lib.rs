@@ -41,6 +41,17 @@ pub struct AppPaths {
 
 fn init_state() -> Result<AppPaths, String> {
     let root = error::data_root().map_err(|e| e.to_string())?;
+    // 安装路径变更时，把旧目录里的数据搬到当前数据根（无声、可重复执行）
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let pointer = core::migrate::pointer_path(std::path::Path::new(&local));
+        match core::migrate::migrate_if_needed(&root, &pointer) {
+            Ok(moved) if !moved.is_empty() => {
+                tracing::info!(moved = ?moved, "data migrated from previous root");
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "data migration skipped"),
+        }
+    }
     for dir in ["projects", "models", "assets", "logs", "tmp"] {
         std::fs::create_dir_all(root.join(dir)).map_err(|e| e.to_string())?;
     }

@@ -7,6 +7,7 @@ pub mod diagnostics;
 pub mod gate;
 pub mod ids;
 pub mod job_state;
+pub mod migrate;
 pub mod model;
 pub mod models;
 pub mod proc;
