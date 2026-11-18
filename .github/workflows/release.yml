@@ -116,6 +116,11 @@ jobs:
           rm -rf src-tauri/resources/upstream/.git
           cp assets/manifest.json src-tauri/resources/assets/
           echo "ffmpeg provided by system" > src-tauri/resources/bin/README.txt
+          mkdir -p src-tauri/resources/pretrain/nsf_hifigan
+          curl -L --fail --retry 3 -o src-tauri/resources/pretrain/checkpoint_best_legacy_500.pt https://hf-mirror.com/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt
+          curl -L --fail --retry 3 -o src-tauri/resources/pretrain/rmvpe.pt https://hf-mirror.com/datasets/ylzz1997/rmvpe_pretrain_model/resolve/main/rmvpe.pt
+          curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/model https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/model
+          curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/config.json https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/config.json
       - name: Build dmg (retry once)
         run: |
           set -e
