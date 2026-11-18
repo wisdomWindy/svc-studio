@@ -44,10 +44,8 @@ fn has_any_data(root: &Path) -> bool {
 }
 
 fn move_item(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if !dst.exists() {
-        if std::fs::rename(src, dst).is_ok() {
-            return Ok(());
-        }
+    if !dst.exists() && std::fs::rename(src, dst).is_ok() {
+        return Ok(());
     }
     // 跨卷或目标已存在：递归复制后删除源
     if src.is_dir() {
