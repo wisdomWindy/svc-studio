@@ -69,7 +69,9 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use std::io;
-    use std::os::unix::io::RawHandle;
+
+    /// unix 上没有 Job Object，这里只需要一个占位类型。
+    pub type RawHandle = std::os::fd::RawFd;
 
     pub struct JobGuard;
 

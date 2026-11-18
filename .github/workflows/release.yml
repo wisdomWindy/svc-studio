@@ -58,7 +58,7 @@ jobs:
           rm -rf src-tauri/resources/upstream/.git
           cp assets/manifest.json src-tauri/resources/assets/
           echo "ffmpeg 由系统提供" > src-tauri/resources/bin/README.txt
-      - run: pnpm tauri build --target universal-apple-darwin --bundles dmg
+      - run: pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}'
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal
