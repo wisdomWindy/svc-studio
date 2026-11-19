@@ -19,6 +19,8 @@ export function InferencePage() {
   const [trans, setTrans] = useState(0);
   const [f0, setF0] = useState("rmvpe");
   const [clip, setClip] = useState(0);
+  // 默认开启：先分离人声再转换，伴奏保持原样
+  const [separateVocals, setSeparateVocals] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +87,7 @@ export function InferencePage() {
         clip: project.materialType === "singing" ? 0 : clip,
         autoPredictF0: false,
         wavFormat: "flac",
+        separateVocals,
       };
       const job = await backend.inferStart(project.id, modelId, inputs, params, null, "batch");
       setMessage(`推理已提交：${job}`);
@@ -276,6 +279,14 @@ export function InferencePage() {
           })()}
         </div>
       </div>
+      <label className="flex items-center gap-2 text-[12px]">
+        <input
+          type="checkbox"
+          checked={separateVocals}
+          onChange={(e) => setSeparateVocals(e.target.checked)}
+        />
+        只转换人声（保留原伴奏）
+      </label>
     </>
   );
 }

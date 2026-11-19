@@ -287,10 +287,26 @@ def run_batch(
             "output": str(out_path),
             "status": "queued",
         }
+        separate = bool(params.get("separateVocals", True))
+        source_for_infer = staged
+        accompaniment = None
+        if separate:
+            try:
+                stems = vocal_mix.separate_song(staged, batch / "stems", params.get("device", ""))
+                if stems.get("ok"):
+                    source_for_infer = Path(stems["vocals"])
+                    accompaniment = Path(stems["accompaniment"])
+                    item["separated"] = True
+            except Exception as exc:  # noqa: BLE001 - 分离失败就退回整段转换
+                item["separateError"] = f"{type(exc).__name__}: {exc}"
+
         try:
-            kwargs = to_svc_kwargs(params, spk, staged)
+            kwargs = to_svc_kwargs(params, spk, source_for_infer)
             t0 = time.time()
-            runner(kwargs, out_path)
+            converted = out_dir / f"{Path(src.name).stem}.vocals.{fmt}" if accompaniment else out_path
+            runner(kwargs, converted)
+            if accompaniment is not None:
+                vocal_mix.mix_tracks(converted, accompaniment, out_path)
             elapsed = time.time() - t0
             seconds_out = _seconds_of(out_path)
             seconds_in = _seconds_of(staged)
