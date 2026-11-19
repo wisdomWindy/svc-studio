@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from . import vocal_mix
 from ..audio import clipping_ratio, peak_dbfs, protect_peak, read_wav, resample_linear, to_mono_if_needed, write_wav, trim_silence
 
 Runner = Callable[[Dict[str, Any], Path], None]

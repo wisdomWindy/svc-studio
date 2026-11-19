@@ -63,11 +63,20 @@ def separate_song(src: Path, dest_dir: Path, device: str = "", model: str = "htd
 
 
 def _read(path: Path) -> tuple[np.ndarray, int]:
-    wav = audio.read_wav(path)
-    data = np.asarray(wav.samples, dtype=np.int16).astype(np.float32) / 32768.0
+    """读 44.1k 单声道样本；wav 用自研解析，其它格式（flac 等）走 soundfile。"""
+    try:
+        wav = audio.read_wav(path)
+        data = np.asarray(wav.samples, dtype=np.int16).astype(np.float32) / 32768.0
+        sr = wav.sample_rate
+    except Exception:
+        import soundfile as sf
+
+        raw, sr = sf.read(str(path), dtype="float32", always_2d=False)
+        data = raw.mean(axis=1) if getattr(raw, "ndim", 1) > 1 else raw
+        return np.asarray(data, dtype=np.float32), int(sr)
     if data.ndim > 1:
         data = data.mean(axis=0)
-    return data, wav.sample_rate
+    return data, sr
 
 
 def mix_tracks(vocal: Path, accompaniment: Path, out_path: Path, vocal_gain: float = 1.0) -> Dict[str, Any]:

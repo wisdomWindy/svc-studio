@@ -59,6 +59,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     spk_note = report.get("spkNote") or ""
     if spk_note:
         emit_log(spk_note, level="warn")
+    issues = [i for i in report.get("items", []) if i.get("separateError")]
+    if issues:
+        emit_log(f"人声分离失败，已回退整段转换：{issues[0]['separateError']}", level="warn")
     summary = report["summary"]
     emit_log("批次完成：ok=%s failed=%s" % (summary["ok"], summary["failed"]))
     emit(
