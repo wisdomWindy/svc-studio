@@ -185,7 +185,11 @@ pub fn delete_project(state: State<'_, AppPaths>, id: String, delete_files: bool
     if delete_files {
         let root = std::path::PathBuf::from(&project.root_path);
         let data_root = state.data_root.clone();
-        if !root.starts_with(&data_root) {
+        let legacy_install_root = crate::core::projects_root::install_dir()
+            .map(|d| d.join("projects"))
+            .filter(|d| root.starts_with(d))
+            .is_some();
+        if !root.starts_with(&data_root) && !legacy_install_root {
             return Err(Box::new(AppError::new(
                 "SVC-7001",
                 "该项目目录不在数据目录内，拒绝自动删除",

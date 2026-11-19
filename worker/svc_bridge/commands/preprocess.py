@@ -207,6 +207,7 @@ def run_chain(
     steps = build_steps(project, upstream, encoder, f0, num_processes, use_diff, vol_aug)
     env = {
         "PYTHONPATH": str(Path(upstream)) + os.pathsep + os.environ.get("PYTHONPATH", ""),
+        "SVCSTUDIO_UPSTREAM_DIR": str(Path(upstream)),
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
     }

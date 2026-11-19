@@ -135,6 +135,7 @@ def run_train(
     env = {
         **os.environ,
         "PYTHONPATH": str(Path(upstream)),
+        "SVCSTUDIO_UPSTREAM_DIR": str(Path(upstream)),
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
     }

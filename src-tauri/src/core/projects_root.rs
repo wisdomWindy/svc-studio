@@ -43,16 +43,9 @@ pub fn resolve_projects_root(data_root: &Path, configured: Option<&str>) -> Path
     if let Some(raw) = configured.map(str::trim).filter(|s| !s.is_empty()) {
         return PathBuf::from(raw);
     }
-    if let Some(dir) = install_dir() {
-        let candidate = dir.join("projects");
-        // 安装目录可写才用；否则退回数据目录，避免"创建项目失败"这种死路。
-        if candidate.is_dir() && is_writable(&candidate) {
-            return candidate;
-        }
-        if !candidate.exists() && is_writable(&dir) {
-            return candidate;
-        }
-    }
+    // 统一放数据目录：项目（数据集/模型）属于用户资产，
+    // 不能放在会被卸载/覆盖安装清理的安装目录里。
+    let _ = install_dir();
     data_root.join("projects")
 }
 
@@ -60,30 +53,29 @@ pub fn resolve_projects_root(data_root: &Path, configured: Option<&str>) -> Path
 mod tests {
     use super::*;
 
+    // 这三个用例都改环境变量，合并成一个以免并行执行互相干扰。
     #[test]
-    fn env_override_wins() {
+    fn resolution_order_and_fallback() {
+        std::env::remove_var(PROJECTS_ENV);
+
+        // 配置值优先于数据目录默认值
+        assert_eq!(
+            resolve_projects_root(Path::new(r"C:\data"), Some(r"E:\chosen")),
+            PathBuf::from(r"E:\chosen")
+        );
+
+        // 环境变量优先于配置值
         std::env::set_var(PROJECTS_ENV, r"D:\custom\projects");
-        let resolved = resolve_projects_root(Path::new(r"C:\data"), Some(r"E:\ignored"));
+        assert_eq!(
+            resolve_projects_root(Path::new(r"C:\data"), Some(r"E:\ignored")),
+            PathBuf::from(r"D:\custom\projects")
+        );
         std::env::remove_var(PROJECTS_ENV);
-        assert_eq!(resolved, PathBuf::from(r"D:\custom\projects"));
-    }
 
-    #[test]
-    fn configured_value_beats_install_dir() {
-        std::env::remove_var(PROJECTS_ENV);
-        let resolved = resolve_projects_root(Path::new(r"C:\data"), Some(r"E:\chosen"));
-        assert_eq!(resolved, PathBuf::from(r"E:\chosen"));
-    }
-
-    #[test]
-    fn falls_back_to_data_root_without_config() {
-        std::env::remove_var(PROJECTS_ENV);
-        let resolved = resolve_projects_root(Path::new(r"C:\data"), None);
-        // 测试进程的可执行文件目录通常不可写或不含 projects，最终落到数据目录
-        assert!(
-            resolved.ends_with("projects"),
-            "结果应当以 projects 结尾：{}",
-            resolved.display()
+        // 没有配置时落在数据目录
+        assert_eq!(
+            resolve_projects_root(Path::new(r"C:\data"), None),
+            PathBuf::from(r"C:\data\projects")
         );
     }
 

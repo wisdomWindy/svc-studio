@@ -104,6 +104,7 @@ if ($LASTEXITCODE -ne 0) { throw "cu128 torch 安装失败" }
 Write-Host "==> 安装其余依赖"
 & $python -m pip install --no-warn-script-location -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
   "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
+  "matplotlib" "pandas" "loguru" `
   "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
 if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
 
