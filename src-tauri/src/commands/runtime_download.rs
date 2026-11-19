@@ -67,14 +67,22 @@ fn run_curl(args: &[String]) -> AppResult<std::process::ExitStatus> {
     Ok(cmd.status()?)
 }
 
-fn download_file(url: &str, dest: &Path, resume: bool) -> AppResult<()> {
+/// 单次 curl：自带重试、连接超时与低速断流保护。
+fn curl_once(url: &str, dest: &Path, resume: bool) -> AppResult<bool> {
     let mut args: Vec<String> = vec![
         "-L".into(),
         "--fail".into(),
         "--retry".into(),
-        "3".into(),
+        "8".into(),
         "--retry-delay".into(),
-        "2".into(),
+        "3".into(),
+        "--retry-all-errors".into(),
+        "--connect-timeout".into(),
+        "20".into(),
+        "--speed-limit".into(),
+        "10240".into(),
+        "--speed-time".into(),
+        "60".into(),
         "-o".into(),
         dest.to_string_lossy().to_string(),
     ];
@@ -88,26 +96,37 @@ fn download_file(url: &str, dest: &Path, resume: bool) -> AppResult<()> {
     }
     args.push("--http1.1".into());
     args.push(url.to_string());
+
     let status = run_curl(&args)?;
-    if !status.success() {
-        return Err(Box::new(AppError::new(
-            "SVC-5001",
-            "下载失败",
-            format!(
-                "{url}（curl 退出码 {:?}；若网络受限，请设置 HTTPS_PROXY 后重试）",
-                status.code()
-            ),
-        )));
-    }
     let size = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
-    if size == 0 {
-        return Err(Box::new(AppError::new(
-            "SVC-5001",
-            "下载内容为空",
-            format!("{url} 返回 0 字节，通常是网络被拦截或代理未生效"),
-        )));
+    Ok(status.success() && size > 0)
+}
+
+/// 分卷下载：断点续传 + 多轮重试 + sha256 校验；失败时保留已下载字节。
+fn download_part(url: &str, dest: &Path, expect_sha: &str, label: &str) -> AppResult<u64> {
+    const MAX_ATTEMPTS: u32 = 12;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match curl_once(url, dest, dest.is_file()) {
+            Ok(true) => {
+                let size = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+                if expect_sha.is_empty() || sha256_of(dest)? == expect_sha {
+                    return Ok(size);
+                }
+                let _ = std::fs::remove_file(dest);
+                tracing::warn!(part = label, attempt, "sha mismatch, restarting part");
+            }
+            Ok(false) => tracing::warn!(part = label, attempt, "attempt failed"),
+            Err(e) => tracing::warn!(part = label, attempt, error = %e, "attempt errored"),
+        }
+        std::thread::sleep(std::time::Duration::from_secs(
+            2 * u64::from(attempt.min(5)),
+        ));
     }
-    Ok(())
+    Err(Box::new(AppError::new(
+        "SVC-5001",
+        format!("分卷下载失败：{label}"),
+        "已重试 12 次；网络恢复后再点一次「自动下载运行时」会从断点继续",
+    )))
 }
 
 /// curl 不读 Windows 的 WinINET 代理设置：先看环境变量，再探测常见本地代理端口。
@@ -191,13 +210,15 @@ async fn install_inner(
     // 1) 清单
     let manifest_path = downloads.join("runtime-manifest.json");
     let _ = std::fs::remove_file(&manifest_path);
-    download_file(&manifest_url(), &manifest_path, false).map_err(|e| {
-        Box::new(AppError::new(
-            "SVC-5001",
-            "无法获取运行时清单",
-            format!("{e}；可手动从 Release 页面下载分卷"),
-        ))
-    })?;
+    download_part(&manifest_url(), &manifest_path, "", "runtime-manifest.json")
+        .map(|_| ())
+        .map_err(|e| {
+            Box::new(AppError::new(
+                "SVC-5001",
+                "无法获取运行时清单",
+                format!("{e}；可手动从 Release 页面下载分卷"),
+            ))
+        })?;
     let raw = std::fs::read(&manifest_path)?;
     let head = String::from_utf8_lossy(&raw[..raw.len().min(160)]).to_string();
     let manifest: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| {
@@ -258,15 +279,7 @@ async fn install_inner(
                 }),
             )
             .ok();
-            download_file(&url, &dest, true)?;
-            let sha = sha256_of(&dest)?;
-            if !expect_sha.is_empty() && sha != expect_sha {
-                return Err(Box::new(AppError::new(
-                    "SVC-5001",
-                    "运行时分卷校验失败",
-                    format!("{name} 期望 {expect_sha}，实际 {sha}"),
-                )));
-            }
+            download_part(&url, &dest, &expect_sha, name)?;
         }
         done_mb += expect_mb;
         downloaded.push(dest);
@@ -304,8 +317,38 @@ async fn install_inner(
         }
     }
 
-    // 4) 解压到数据根 runtime/
+    // 4) 先解压到临时目录，校验通过后再替换旧 runtime：
+    //    这样解压中途失败不会留下半截运行时。
     let target = root.join("runtime");
+    let staging = root.join("runtime.new");
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)?;
+    }
+    std::fs::create_dir_all(&staging)?;
+    let mut tar = std::process::Command::new("tar");
+    crate::core::proc::hide_console(&mut tar);
+    let status = tar
+        .arg("-xf")
+        .arg(&zip_path)
+        .arg("-C")
+        .arg(&staging)
+        .status()?;
+    if !status.success() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(Box::new(AppError::new(
+            "SVC-5001",
+            "运行时解压失败",
+            format!("tar 退出码 {:?}；已下载的分卷保留，可重试", status.code()),
+        )));
+    }
+    if !staging.join("python.exe").is_file() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(Box::new(AppError::new(
+            "SVC-5001",
+            "运行时包不完整",
+            "解压后没有 python.exe；已下载的分卷保留，可重试",
+        )));
+    }
     if target.exists() {
         std::fs::remove_dir_all(&target).map_err(|e| {
             Box::new(AppError::new(
@@ -315,23 +358,7 @@ async fn install_inner(
             ))
         })?;
     }
-    std::fs::create_dir_all(&target)?;
-    let mut tar = std::process::Command::new("tar");
-    crate::core::proc::hide_console(&mut tar);
-    let status = tar
-        .arg("-xf")
-        .arg(&zip_path)
-        .arg("-C")
-        .arg(&target)
-        .status()?;
-    if !status.success() {
-        return Err(Box::new(AppError::new(
-            "SVC-5001",
-            "运行时解压失败",
-            format!("tar 退出码 {:?}", status.code()),
-        )));
-    }
-
+    std::fs::rename(&staging, &target)?;
     let python = target.join("python.exe");
     app.emit(
         "runtime-progress",

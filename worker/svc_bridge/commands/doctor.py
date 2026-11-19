@@ -109,12 +109,26 @@ def check_cuda() -> Dict[str, Any]:
     try:
         import torch
     except Exception as exc:  # noqa: BLE001
-        return _item("cuda", "fail", "无法检测 CUDA（torch 缺失）", cause=str(exc), blocking=True)
+        return _item(
+            "cuda",
+            "fail",
+            "无法检测 CUDA（torch 缺失）",
+            cause=str(exc),
+            fix="运行时未安装或不完整：在设置页点「自动下载运行时」重装内置运行时",
+            blocking=True,
+        )
     try:
         available = bool(torch.cuda.is_available())
         version = torch.version.cuda
     except Exception as exc:  # noqa: BLE001
-        return _item("cuda", "fail", "CUDA 状态读取失败", cause=str(exc), blocking=True)
+        return _item(
+            "cuda",
+            "fail",
+            "CUDA 状态读取失败",
+            cause=str(exc),
+            fix="重装内置运行时；若仍失败请导出诊断包",
+            blocking=True,
+        )
     if not available:
         return _item(
             "cuda",
@@ -132,7 +146,14 @@ def check_gpu() -> Dict[str, Any]:
     try:
         import torch
     except Exception as exc:  # noqa: BLE001
-        return _item("gpu", "fail", "无法枚举显卡（torch 缺失）", cause=str(exc), blocking=True)
+        return _item(
+            "gpu",
+            "fail",
+            "无法枚举显卡（torch 缺失）",
+            cause=str(exc),
+            fix="运行时未安装或不完整：在设置页点「自动下载运行时」重装内置运行时",
+            blocking=True,
+        )
     try:
         if not torch.cuda.is_available():
             return _item(
@@ -146,7 +167,14 @@ def check_gpu() -> Dict[str, Any]:
         props = torch.cuda.get_device_properties(0)
         vram_mb = int(props.total_memory / (1024 * 1024))
     except Exception as exc:  # noqa: BLE001
-        return _item("gpu", "fail", "显卡信息读取失败", cause=str(exc), blocking=True)
+        return _item(
+            "gpu",
+            "fail",
+            "显卡信息读取失败",
+            cause=str(exc),
+            fix="更新 NVIDIA 驱动后重试；仍失败请导出诊断包",
+            blocking=True,
+        )
     state = "pass" if vram_mb >= 6144 else "fail"
     return _item(
         "gpu",
