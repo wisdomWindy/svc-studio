@@ -85,7 +85,11 @@ jobs:
       - name: Stage resources
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-runtime.ps1
-      - run: pnpm tauri build
+      - name: Build installer (signed)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build
       - name: Upload installer
         shell: pwsh
         env:
@@ -122,6 +126,9 @@ jobs:
           curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/model https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/model
           curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/config.json https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/config.json
       - name: Build dmg (retry once)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -e
           pnpm tauri build --target universal-apple-darwin --config '{"bundle":{"targets":["dmg"],"active":true}}' && exit 0
@@ -166,9 +173,54 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "upload failed: $($f.Name)" }
           }
 
+  latest:
+    name: publish latest.json
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release download "$TAG" --dir assets --clobber || true
+          ls -l assets | head -50
+      - name: Build latest.json
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, datetime
+          tag = os.environ["TAG"]
+          version = tag.lstrip("v")
+          assets = pathlib.Path("assets")
+          platforms = {}
+          def sig_for(name):
+              p = assets / (name + ".sig")
+              return p.read_text().strip() if p.exists() else ""
+          exe = next((p.name for p in assets.glob("*.exe")), None)
+          if exe:
+              platforms["windows-x86_64"] = {
+                  "signature": sig_for(exe),
+                  "url": f"https://github.com/{os.environ['GH_REPO']}/releases/download/{tag}/{exe}",
+              }
+          data = {
+              "version": version,
+              "notes": f"SVC Studio {version}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+              "platforms": platforms,
+          }
+          pathlib.Path("latest.json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
+          print(json.dumps(data, ensure_ascii=False)[:400])
+          PY
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" latest.json --clobber
+
   publish:
     name: publish release
-    needs: [windows, macos, runtime]
+    needs: [windows, macos, runtime, latest]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

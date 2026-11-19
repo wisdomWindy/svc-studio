@@ -1,12 +1,16 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "涓荤獥鍙ｆ渶灏忔潈闄愶細鍙紑瀵硅瘽妗嗕笌閫氱煡锛屼笉鍚敤 shell / fs 鎻掍欢",
-  "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:allow-open",
-    "dialog:allow-save",
-    "notification:default"
-  ]
+    "$schema":  "../gen/schemas/desktop-schema.json",
+    "identifier":  "default",
+    "description":  "涓荤獥鍙ｆ渶灏忔潈闄愶細鍙紑瀵硅瘽妗嗕笌閫氱煡锛屼笉鍚敤 shell / fs 鎻掍欢",
+    "windows":  [
+                    "main"
+                ],
+    "permissions":  [
+                        "core:default",
+                        "dialog:allow-open",
+                        "dialog:allow-save",
+                        "notification:default",
+                        "updater:default",
+                        "process:default"
+                    ]
 }

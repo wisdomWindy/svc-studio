@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
+import { UpdateChecker } from "./UpdateChecker";
 import { backend, type BootstrapInfo, type DoctorReport } from "@/lib/backend";
 import { toErrorText } from "@/lib/errors";
 
@@ -77,6 +78,7 @@ export function SettingsPage() {
         description="环境状态、诊断包、外观与合规。默认零联网、零遥测。"
         actions={
           <div className="flex gap-2">
+            <UpdateChecker />
             <Button disabled={busy} onClick={() => void runDoctor()}>
               {busy ? "检查中…" : "环境自检"}
             </Button>
