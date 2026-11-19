@@ -39,6 +39,35 @@ export function AppShell() {
     };
   }, []);
 
+  // 运行时安装完成后刷新底栏状态（bootstrap 只在挂载时取一次会一直显示「未就绪」）
+  useEffect(() => {
+    if (!isTauri()) return;
+    let alive = true;
+    const refresh = () => {
+      void backend
+        .bootstrap()
+        .then((next) => {
+          if (alive) setBoot(next);
+        })
+        .catch(() => undefined);
+    };
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(({ listen }) =>
+      listen("runtime-progress", (event) => {
+        const stage = (event.payload as { stage?: string }).stage;
+        if (stage === "done") refresh();
+      }).then((fn) => {
+        unlisten = fn;
+      }),
+    );
+    window.addEventListener("focus", refresh);
+    return () => {
+      alive = false;
+      unlisten?.();
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
   return (
     <div className="flex h-full bg-canvas">
       <a
