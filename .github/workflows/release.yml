@@ -187,6 +187,9 @@ jobs:
           gh release download "$TAG" --dir assets --clobber || true
           ls -l assets | head -50
       - name: Build latest.json
+        env:
+          TAG: ${{ env.TAG }}
+          GH_REPO: ${{ github.repository }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, datetime

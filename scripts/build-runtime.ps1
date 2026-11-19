@@ -88,9 +88,17 @@ Write-Host "==> 准备 cu128 轮子（fairseq-fixed 构建时要 import torch，
 $torchWheel = Join-Path $wheelDir "torch-2.8.0+cu128-cp313-cp313-win_amd64.whl"
 $audioWheel = Join-Path $wheelDir "torchaudio-2.8.0+cu128-cp313-cp313-win_amd64.whl"
 if (-not (Test-Path $torchWheel)) {
-  Write-Host "    下载 torch（约 3.3GB，断点续传）"
-  & curl.exe -L --fail --retry 3 --retry-delay 2 -C - -o $torchWheel $torchWheelUrl
-  if ($LASTEXITCODE -ne 0) { throw "torch 轮子下载失败" }
+  Write-Host "    下载 torch（约 3.3GB，断点续传，最多 5 次）"
+  for ($i = 1; $i -le 5; $i++) {
+    & curl.exe -L --fail --retry 5 --retry-delay 3 --retry-all-errors -C - -o $torchWheel $torchWheelUrl
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $torchWheel)) {
+      $sizeGb = (Get-Item $torchWheel).Length / 1GB
+      if ($sizeGb -gt 2.5) { Write-Host "    完成：$([math]::Round($sizeGb,2)) GB"; break }
+    }
+    Write-Host "    第 $i 次未完成，10 秒后续传"
+    Start-Sleep -Seconds 10
+  }
+  if (-not (Test-Path $torchWheel)) { throw "torch 轮子下载失败" }
 }
 if (-not (Test-Path $audioWheel)) {
   & curl.exe -L --fail --retry 3 --retry-delay 2 -C - -o $audioWheel $audioWheelUrl
