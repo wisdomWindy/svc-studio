@@ -159,6 +159,7 @@ export const backend = {
   trainStart: (projectId: string, smoke = false, resume = false) =>
     call<string>("train_start", { projectId, smoke, resume, kind: null }),
   trainStop: (jobId: string) => call<boolean>("train_stop", { jobId }),
+  trainArchive: (projectId: string) => call<string>("train_archive", { projectId }),
   trainCheckpoints: (projectId: string) =>
     call<CheckpointInfo[]>("train_checkpoints", { projectId }),
   trainAux: (projectId: string, kind: "cluster" | "index") =>

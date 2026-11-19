@@ -13,6 +13,7 @@ export function TrainingPage() {
   const project = useActiveProject();
   const [recommend, setRecommend] = useState<Recommend | null>(null);
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -89,6 +90,27 @@ export function TrainingPage() {
   useEffect(() => {
     void refreshRegistered();
   }, [refreshRegistered, jobId]);
+
+  async function archiveAndReset() {
+    if (!project) return;
+    if (
+      !window.confirm(
+        "归档当前训练产物并重新开始？\n\n旧的 checkpoint 会改名保留在 logs/44k_<时间戳>，不会被删除。",
+      )
+    )
+      return;
+    setArchiveBusy(true);
+    setError(null);
+    try {
+      const archived = await backend.trainArchive(project.id);
+      setCheckpoints([]);
+      setMessage(`已归档到 ${archived.split(/[\\/]/).pop()}，可以重新开始训练了`);
+    } catch (e) {
+      setError(toErrorText(e));
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
 
   const refreshCheckpoints = useCallback(async () => {
     if (!project) return;
@@ -208,6 +230,11 @@ export function TrainingPage() {
                       ? "继续训练"
                       : "开始训练"}
                 </Button>
+                {checkpoints.length > 0 && (
+                  <Button disabled={!!busy || archiveBusy} onClick={() => void archiveAndReset()}>
+                    {archiveBusy ? "归档中…" : "归档并重新训练"}
+                  </Button>
+                )}
               </>
             )}
           </div>

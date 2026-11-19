@@ -352,6 +352,40 @@ fn find_active_train(state: &crate::AppPaths) -> AppResult<Option<(String, Strin
     Ok(None)
 }
 
+/// 归档当前训练产物，让下一次训练从 0 步开始。
+///
+/// 只重命名 `logs/44k` 为 `logs/44k_<时间戳>`，不删除任何 checkpoint；
+/// 换说话人、换数据集重新训练时用。
+#[tauri::command]
+pub fn train_archive(state: State<'_, AppPaths>, project_id: String) -> AppResult<String> {
+    let root = project_root(&state, &project_id)?;
+    let logs = root.join("logs");
+    let current = logs.join("44k");
+    if !current.is_dir() {
+        return Err(Box::new(AppError::new(
+            "SVC-5001",
+            "没有可归档的训练产物",
+            "logs/44k 不存在，直接开始训练即可",
+        )));
+    }
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let mut target = logs.join(format!("44k_{stamp}"));
+    let mut n = 1;
+    while target.exists() {
+        target = logs.join(format!("44k_{stamp}-{n}"));
+        n += 1;
+    }
+    std::fs::rename(&current, &target).map_err(|e| {
+        Box::new(AppError::new(
+            "SVC-5001",
+            "归档失败",
+            format!("可能有训练正在运行或文件被占用：{e}"),
+        ))
+    })?;
+    tracing::info!(archived = %target.display(), "training artifacts archived");
+    Ok(target.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 
 pub fn train_start(
@@ -911,6 +945,25 @@ mod prune_tests {
         assert!(dir.join("G_1400.pth").is_file());
         assert!(dir.join("G_1600.pth").is_file());
         assert!(!dir.join("G_1000.pth").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+#[cfg(test)]
+mod archive_tests {
+    #[test]
+    fn archive_dir_name_is_unique_and_timestamped() {
+        let dir = std::env::temp_dir().join(format!("svc-archive-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let logs = dir.join("logs");
+        std::fs::create_dir_all(logs.join("44k")).unwrap();
+        std::fs::write(logs.join("44k").join("G_100.pth"), b"x").unwrap();
+
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let target = logs.join(format!("44k_{stamp}"));
+        std::fs::rename(logs.join("44k"), &target).unwrap();
+
+        assert!(!logs.join("44k").exists());
+        assert!(target.join("G_100.pth").is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
