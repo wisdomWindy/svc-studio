@@ -346,6 +346,17 @@ async fn install_inner(
         )));
     }
 
+    // 5) 成功后清掉下载产物（3.6GB 分卷 + 合并包），失败时保留以便断点续传
+    let _ = std::fs::remove_file(&zip_path);
+    for part in &downloaded {
+        let _ = std::fs::remove_file(part);
+    }
+    let _ = std::fs::remove_file(&manifest_path);
+    tracing::info!(
+        freed = downloaded.len(),
+        "runtime installed; download cache cleaned"
+    );
+
     let bytes = std::fs::metadata(&python).map(|m| m.len()).unwrap_or(0);
     Ok(RuntimeInstallStatus {
         ready: true,
