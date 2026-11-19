@@ -392,6 +392,21 @@ pub fn train_start(
         )));
     }
 
+    // 磁盘余量：每组 checkpoint 约 1.1GB（G+D），空间不足会在保存时失败并把训练标记为 failed
+    if let Some(free) = free_disk_gb(&root) {
+        let need = 6.0;
+        if free < need {
+            return Err(Box::new(AppError::new(
+                "SVC-5001",
+                "磁盘空间不足",
+                format!(
+                    "当前 {free:.1} GB 可用，训练至少需要 {need:.0} GB（每组 checkpoint 约 1.1GB）。\
+                     请清理 projects 下旧的 logs/44k checkpoint，或换更大的磁盘。"
+                ),
+            )));
+        }
+    }
+
     let upstream = resolve_upstream_dir();
     let python = crate::commands::settings::python_for_state(&state)?;
     let worker_dir = resolve_worker_dir();
@@ -742,4 +757,34 @@ mod tests {
 #[tauri::command]
 pub fn gpu_busy(state: State<'_, AppPaths>) -> bool {
     state.scheduler.in_use()
+}
+
+/// 数据目录所在磁盘剩余空间（GB）。
+fn free_disk_gb(dir: &std::path::Path) -> Option<f64> {
+    #[cfg(windows)]
+    {
+        // 用 `dir` 的盘符查询剩余空间：直接读 fs 元数据拿不到，借 PowerShell 太重，
+        // 这里用 std::fs 写入探测配合 GetDiskFreeSpaceEx 的简化替代：调用 `fsutil` 也重。
+        let root = dir.ancestors().last()?.to_path_buf();
+        let _ = root;
+        let drive = dir
+            .components()
+            .next()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())?;
+        let script = format!("(Get-PSDrive -Name '{}').Free", drive.trim_end_matches(':'));
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", script.as_str()])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        text.trim()
+            .parse::<f64>()
+            .ok()
+            .map(|b| b / 1024.0 / 1024.0 / 1024.0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        None
+    }
 }
