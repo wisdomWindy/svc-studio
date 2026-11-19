@@ -412,24 +412,90 @@ pub async fn dataset_import(
     Ok(serde_json::to_value(outcome).unwrap_or(serde_json::Value::Null))
 }
 
-/// 把用户上传的任意格式音频，处理成 so-vits-svc 需要的形态：
-/// 1) ffmpeg 解码为 44.1k 单声道 wav（原文件移到 `_original/` 保留）
-/// 2) 超过 15s 的切片成 5–15s
-/// 3) 统一响度峰值（重采样步骤）
+/// 启动数据集准备任务并立即返回；进度与结果通过 `dataset-progress` 事件回传。
+///
+/// 流程：ffmpeg 转 44.1k 单声道 → 超过 15s 切 5–15s → 统一下响度。
+/// 分离（Demucs）+ 切片可能跑几分钟，远超 IPC 的 15 秒超时，所以不在命令里等待。
 #[tauri::command]
-pub async fn dataset_prepare(
+pub fn dataset_prepare(
+    app: tauri::AppHandle,
     state: State<'_, AppPaths>,
     project_id: String,
     separate: Option<bool>,
-) -> AppResult<serde_json::Value> {
+) -> AppResult<()> {
+    use tauri::Emitter;
+
+    let handle = app.clone();
+    let separate = separate.unwrap_or(true);
+    // 先确认 python 可用，避免异步启动后才发现环境问题
     let python = crate::commands::settings::python_for_state(&state)?;
     let root = project_root(&state, &project_id)?;
+    let handle2 = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let progress = |stage: &str, message: &str| {
+            handle2
+                .emit(
+                    "dataset-progress",
+                    serde_json::json!({ "stage": stage, "message": message }),
+                )
+                .ok();
+        };
+        progress(
+            "separate",
+            if separate {
+                "分离人声…"
+            } else {
+                "跳过分离"
+            },
+        );
+        let result = run_prepare(python, root, separate, &handle2).await;
+        match result {
+            Ok(value) => {
+                handle
+                    .emit(
+                        "dataset-progress",
+                        serde_json::json!({ "stage": "done", "result": value }),
+                    )
+                    .ok();
+            }
+            Err(e) => {
+                handle
+                    .emit(
+                        "dataset-progress",
+                        serde_json::json!({
+                            "stage": "error",
+                            "code": e.code,
+                            "message": e.message,
+                            "cause": e.cause,
+                        }),
+                    )
+                    .ok();
+            }
+        }
+    });
+    Ok(())
+}
+
+async fn run_prepare(
+    python: std::path::PathBuf,
+    root: std::path::PathBuf,
+    separate: bool,
+    app: &tauri::AppHandle,
+) -> AppResult<serde_json::Value> {
+    use tauri::Emitter;
     let dir = dataset_raw(&root);
     let root_arg = dir.to_string_lossy().to_string();
+    let stage = |name: &str, message: &str| {
+        app.emit(
+            "dataset-progress",
+            serde_json::json!({ "stage": name, "message": message }),
+        )
+        .ok();
+    };
 
-    // 先分离人声（需要 Demucs），再做格式/切片/响度处理
     let mut sep_report = serde_json::Value::Null;
-    if separate.unwrap_or(true) {
+    if separate {
+        stage("separate", "分离人声（Demucs）…");
         sep_report = run_json(&python, &["dataset", "separate", "--root", &root_arg]).await?;
         let sep_failed = sep_report
             .get("failed")
@@ -445,10 +511,13 @@ pub async fn dataset_prepare(
         }
     }
 
+    stage("convert", "转换格式…");
     let converted = run_json(&python, &["dataset", "convert", "--root", &root_arg]).await?;
+    stage("slice", "切片…");
     let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
+    stage("resample", "统一 44.1k 单声道…");
     let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
-    // 收尾：项目里只留最终干声片段，原始文件与中间产物全部删除
+    stage("finalize", "清理中间产物…");
     let finalized = run_json(&python, &["dataset", "finalize", "--root", &root_arg]).await?;
 
     let failed = converted

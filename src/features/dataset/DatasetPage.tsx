@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
+import { listen } from "@tauri-apps/api/event";
 import { backend } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { formatDuration, statusLabel } from "@/lib/format";
@@ -70,6 +71,34 @@ export function DatasetPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
 
+  // 启动后台准备任务并等待 dataset-progress 事件返回结果
+  async function waitForPrepare(projectId: string) {
+    return new Promise<Record<string, any>>((resolve, reject) => {
+      let unlisten: (() => void) | undefined;
+      void listen<{ stage: string; message?: string; result?: Record<string, any>; code?: string; cause?: string }>(
+        "dataset-progress",
+        (event) => {
+          const payload = event.payload;
+          if (payload.stage === "done") {
+            unlisten?.();
+            resolve(payload.result ?? {});
+          } else if (payload.stage === "error") {
+            unlisten?.();
+            reject(new Error(`[${payload.code ?? "SVC-3001"}] ${payload.message ?? "数据集处理失败"}${payload.cause ? `：${payload.cause}` : ""}`));
+          } else if (payload.message) {
+            setImportNote(payload.message);
+          }
+        },
+      ).then((fn) => {
+        unlisten = fn;
+      });
+      void backend.datasetPrepare(projectId, separateVocals).catch((e) => {
+        unlisten?.();
+        reject(e);
+      });
+    });
+  }
+
   async function handleImport(paths: string[]) {
     if (!project) return;
     setBusy("import");
@@ -81,12 +110,12 @@ export function DatasetPage() {
       if (result.skipped > 0) parts.push(`跳过 ${result.skipped} 个重复`);
       if (result.rejected > 0) parts.push(`忽略 ${result.rejected} 个非音频`);
       setImportNote(parts.join("，"));
-      // 导入后自动：转码 → 切片 → 统一响度 → 扫描 → QC
-      const prepared = await backend.datasetPrepare(project.id, separateVocals);
+      // 导入后自动：分离 → 转码 → 切片 → 统一响度 → 扫描 → QC
+      // dataset_prepare 是后台任务（分离要几分钟），结果通过事件回传
+      const prepared = await waitForPrepare(project.id);
       const separatedCount = Array.isArray(prepared.separated) ? prepared.separated.length : 0;
-      const convertedCount = Array.isArray(prepared.converted) ? prepared.converted.length : 0;
       const slicedCount = Array.isArray(prepared.sliced) ? prepared.sliced.length : 0;
-      if (separatedCount > 0 || convertedCount > 0 || slicedCount > 0 || prepared.keptCount) {
+      if (separatedCount > 0 || slicedCount > 0 || prepared.keptCount) {
         setImportNote(
           `${parts.join("，")}；已分离 ${separatedCount} 个、切片 ${slicedCount} 个，最终保留 ${prepared.keptCount ?? 0} 段干声（原始文件与中间产物已清理）`,
         );
