@@ -765,24 +765,31 @@ pub fn gpu_busy(state: State<'_, AppPaths>) -> bool {
 fn free_disk_gb(dir: &std::path::Path) -> Option<f64> {
     #[cfg(windows)]
     {
-        // 用 `dir` 的盘符查询剩余空间：直接读 fs 元数据拿不到，借 PowerShell 太重，
-        // 这里用 std::fs 写入探测配合 GetDiskFreeSpaceEx 的简化替代：调用 `fsutil` 也重。
-        let root = dir.ancestors().last()?.to_path_buf();
-        let _ = root;
-        let drive = dir
-            .components()
-            .next()
-            .map(|c| c.as_os_str().to_string_lossy().to_string())?;
-        let script = format!("(Get-PSDrive -Name '{}').Free", drive.trim_end_matches(':'));
-        let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", script.as_str()])
-            .output()
-            .ok()?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        text.trim()
-            .parse::<f64>()
-            .ok()
-            .map(|b| b / 1024.0 / 1024.0 / 1024.0)
+        use std::os::windows::ffi::OsStrExt as _;
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+        // 取盘符根（"D:\\"）；GetDiskFreeSpaceExW 需要以反斜杠结尾的路径。
+        let root = dir.ancestors().last()?;
+        let mut wide: Vec<u16> = root.as_os_str().encode_wide().collect();
+        if !wide.ends_with(&[b'\\' as u16]) {
+            wide.push(b'\\' as u16);
+        }
+        wide.push(0);
+
+        let mut free: u64 = 0;
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                PCWSTR(wide.as_ptr()),
+                Some(&mut free as *mut u64),
+                None,
+                None,
+            )
+        };
+        if ok.is_err() {
+            return None;
+        }
+        Some(free as f64 / 1024.0 / 1024.0 / 1024.0)
     }
     #[cfg(not(windows))]
     {

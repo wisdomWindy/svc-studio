@@ -377,7 +377,9 @@ mod tests {
 
     #[cfg(windows)]
     fn pid_exists(pid: u32) -> bool {
-        let out = std::process::Command::new("tasklist")
+        let mut tasklist = std::process::Command::new("tasklist");
+        crate::core::proc::hide_console(&mut tasklist);
+        let out = tasklist
             .args(["/FI", &format!("PID eq {pid}"), "/NH"])
             .output()
             .expect("tasklist");

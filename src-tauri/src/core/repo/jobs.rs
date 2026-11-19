@@ -203,8 +203,9 @@ pub fn reconcile(conn: &Connection, now: &str) -> AppResult<Vec<String>> {
 #[cfg(windows)]
 fn process_alive(pid: i64) -> bool {
     use std::process::Command;
-    Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+    let mut cmd = Command::new("tasklist");
+    crate::core::proc::hide_console(&mut cmd);
+    cmd.args(["/FI", &format!("PID eq {pid}"), "/NH"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
         .unwrap_or(false)

@@ -1,6 +1,6 @@
 [package]
 name = "svc-studio"
-version = "0.1.23"
+version = "0.1.24"
 description = "SVC Studio - so-vits-svc desktop pipeline"
 authors = ["SVC Studio"]
 edition = "2021"
@@ -36,6 +36,7 @@ windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_Security",
   "Win32_System_JobObjects",
+  "Win32_Storage_FileSystem",
   "Win32_System_Threading",
 ] }
 
