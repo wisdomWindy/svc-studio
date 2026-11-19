@@ -77,6 +77,7 @@ pub async fn run_doctor(
 ) -> AppResult<DoctorReport> {
     let mut cmd = Command::new(python);
     crate::core::proc::hide_console_async(&mut cmd);
+    let pretrain = crate::infra::pretrain::resolve_pretrain_dir(data_root);
     cmd.args([
         "-m",
         "svc_bridge",
@@ -84,6 +85,8 @@ pub async fn run_doctor(
         "--json",
         "--data-root",
         &data_root.to_string_lossy(),
+        "--pretrain-dir",
+        &pretrain.to_string_lossy(),
         "--encoder",
         encoder,
         "--f0",

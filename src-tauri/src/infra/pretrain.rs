@@ -33,6 +33,7 @@ pub fn resolve_pretrain_dir(data_root: &Path) -> std::path::PathBuf {
         dir.join("checkpoint_best_legacy_500.pt").is_file()
             && dir.join("rmvpe.pt").is_file()
             && dir.join("nsf_hifigan").join("model").is_file()
+            && dir.join("nsf_hifigan").join("config.json").is_file()
     };
     // 用户自己放的更完整就先用它，否则用内置的
     if complete(&user) {

@@ -64,6 +64,7 @@ def _add_dataset(parser: argparse.ArgumentParser) -> None:
 def _add_doctor(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--data-root", default=".")
+    parser.add_argument("--pretrain-dir", default="")
     parser.add_argument("--encoder", default="vec768l12")
     parser.add_argument("--f0", default="rmvpe")
 
@@ -149,6 +150,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         from .commands import doctor
 
         doctor_argv: List[str] = [
+        "--pretrain-dir",
+        getattr(args, "pretrain_dir", "") or "",
             "--data-root",
             str(args.data_root),
             "--encoder",

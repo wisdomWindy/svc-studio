@@ -210,7 +210,14 @@ def build_report(
     data_root: str,
     encoder: str = "vec768l12",
     f0: str = "rmvpe",
+    pretrain: str = "",
 ) -> Dict[str, Any]:
+    pretrain_dir = (
+        pretrain
+        or os.environ.get("SVCSTUDIO_PRETRAIN_DIR", "").strip()
+        or os.path.join(data_root, "pretrain")
+    )
+    weights_root = os.path.dirname(os.path.abspath(pretrain_dir.rstrip("/\\")))
     items = [
         check_python(),
         check_torch(),
@@ -218,9 +225,9 @@ def build_report(
         check_gpu(),
         check_ffmpeg(),
         check_disk(data_root),
-        _check_files("encoder", data_root, ENCODER_WEIGHTS.get(encoder, []), f"语音编码器（{encoder}）"),
-        _check_files("f0", data_root, F0_WEIGHTS.get(f0, []), f"F0 权重（{f0}）"),
-        _check_files("vocoder", data_root, VOCoder_FILES, "声码器 nsf_hifigan"),
+        _check_files("encoder", weights_root, ENCODER_WEIGHTS.get(encoder, []), f"语音编码器（{encoder}）"),
+        _check_files("f0", weights_root, F0_WEIGHTS.get(f0, []), f"F0 权重（{f0}）"),
+        _check_files("vocoder", weights_root, VOCoder_FILES, "声码器 nsf_hifigan"),
     ]
     summary = {
         "pass": sum(1 for i in items if i["state"] == "pass"),
@@ -242,12 +249,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     parser = argparse.ArgumentParser(prog="svc_bridge doctor")
     parser.add_argument("--json", action="store_true", help="以单个 JSON 对象输出")
-    parser.add_argument("--data-root", default=".", help="数据根目录（用于磁盘与权重检查）")
+    parser.add_argument("--data-root", default=".", help="数据根目录（磁盘检查）")
+    parser.add_argument("--pretrain-dir", default="", help="权重目录（默认 <data-root>/pretrain）")
     parser.add_argument("--encoder", default="vec768l12")
     parser.add_argument("--f0", default="rmvpe")
     args = parser.parse_args(argv)
 
-    report = build_report(args.data_root, args.encoder, args.f0)
+    report = build_report(args.data_root, args.encoder, args.f0, args.pretrain_dir)
     if args.json:
         # 直接写 UTF-8 字节：Windows 控制台默认 cp936，按文本 print 会把中文编坏。
         payload = json.dumps(report, ensure_ascii=False).encode("utf-8")
