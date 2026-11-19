@@ -56,6 +56,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     finally:
         os.chdir(previous_cwd)
 
+    spk_note = report.get("spkNote") or ""
+    if spk_note:
+        emit_log(spk_note, level="warn")
     summary = report["summary"]
     emit_log("批次完成：ok=%s failed=%s" % (summary["ok"], summary["failed"]))
     emit(

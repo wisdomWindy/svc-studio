@@ -205,6 +205,25 @@ def _seconds_of(path: Path) -> float:
         return 0.0
 
 
+
+def resolve_spk(config_path: str, spk: str) -> tuple[str, str]:
+    """上游按 config.json 的 spk 表校验说话人；名字对不上时退回表里的第一个。
+
+    返回 (实际使用的 spk, 提示信息)。提示信息为空表示无需告知。
+    """
+    try:
+        data = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    except Exception:
+        return spk, ""
+    table = data.get("spk") or {}
+    if not isinstance(table, dict) or not table:
+        return spk, ""
+    if spk in table:
+        return spk, ""
+    first = next(iter(table))
+    return first, f"模型里的说话人是「{first}」，请求的「{spk}」不存在，已自动改用「{first}」"
+
+
 def run_batch(
     root: Path,
     model_path: str,
@@ -217,6 +236,9 @@ def run_batch(
     runner_factory: Optional[Callable[[], Runner]] = None,
     on_item: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
+    resolved_spk, spk_note = resolve_spk(config_path, spk)
+    spk = resolved_spk
+
     batch, prep_failures = prepare_batch(root, batch_name, inputs)
     out_dir = batch / "outputs"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -302,6 +324,7 @@ def run_batch(
         "modelPath": model_path,
         "configPath": config_path,
         "spk": spk,
+        "spkNote": spk_note,
         "device": resolve_device(params.get("device")),
         "params": params,
         "paramsHash": params_hash(params),
