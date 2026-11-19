@@ -501,6 +501,8 @@ pub fn train_start(
             spec
         }
 
+        spawn_disk_watchdog(db.clone(), job_for_task.clone(), root_for_task.clone());
+
         let mut attempts = 1u32;
         let mut outcome = run_attempt(
             make_spec(
@@ -786,5 +788,122 @@ fn free_disk_gb(dir: &std::path::Path) -> Option<f64> {
     {
         let _ = dir;
         None
+    }
+}
+
+/// 列出 `logs/44k` 下的 checkpoint 组（G_x 与 D_x 成对），按步数升序，跳过 0 步。
+fn checkpoint_pairs(logs: &std::path::Path) -> Vec<(u64, std::path::PathBuf, std::path::PathBuf)> {
+    let mut pairs: Vec<(u64, std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(logs) else {
+        return pairs;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(rest) = name.strip_prefix("G_") else {
+            continue;
+        };
+        let Some(step) = rest
+            .strip_suffix(".pth")
+            .and_then(|s| s.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        if step == 0 {
+            continue;
+        }
+        let d = logs.join(format!("D_{step}.pth"));
+        pairs.push((step, entry.path(), d));
+    }
+    pairs.sort_by_key(|(step, _, _)| *step);
+    pairs
+}
+
+/// 删除最旧的 checkpoint 组，只保留最新 `keep` 组。返回被删除的步数。
+pub fn prune_old_checkpoints(logs: &std::path::Path, keep: usize) -> Vec<u64> {
+    let pairs = checkpoint_pairs(logs);
+    if pairs.len() <= keep {
+        return Vec::new();
+    }
+    let mut removed = Vec::new();
+    for (step, g, d) in pairs.iter().take(pairs.len() - keep) {
+        let _ = std::fs::remove_file(g);
+        let _ = std::fs::remove_file(d);
+        removed.push(*step);
+    }
+    removed
+}
+
+/// 训练期间盯着磁盘：余量低于阈值就删最旧的 checkpoint，避免保存时写坏文件。
+fn spawn_disk_watchdog(
+    db: std::sync::Arc<crate::infra::db::Db>,
+    job_id: String,
+    root: std::path::PathBuf,
+) {
+    tauri::async_runtime::spawn(async move {
+        let logs = root.join("logs").join("44k");
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            let running = db
+                .with(|c| crate::core::repo::jobs::get(c, &job_id))
+                .ok()
+                .flatten()
+                .map(|j| j.status == "running")
+                .unwrap_or(false);
+            if !running {
+                break;
+            }
+            let Some(free) = free_disk_gb(&root) else {
+                continue;
+            };
+            if free >= 8.0 {
+                continue;
+            }
+            // 空间紧张：只留最新 2 组 + 0 步底模
+            let removed = prune_old_checkpoints(&logs, 2);
+            let now = now_iso();
+            let msg = if removed.is_empty() {
+                format!("磁盘余量 {free:.1} GB，没有可清理的旧 checkpoint")
+            } else {
+                format!("磁盘余量 {free:.1} GB，已清理旧 checkpoint：{removed:?}")
+            };
+            let _ = db.with(|c| {
+                crate::core::repo::jobs::append_event(
+                    c,
+                    &job_id,
+                    &crate::core::repo::jobs::NewJobEvent {
+                        level: "warn",
+                        code: Some("SVC-5001"),
+                        message: &msg,
+                        data_json: None,
+                        ts: &now,
+                    },
+                )
+            });
+            tracing::warn!(free_gb = free, removed = ?removed, "disk low during training");
+        }
+    });
+}
+#[cfg(test)]
+mod prune_tests {
+    use super::*;
+
+    #[test]
+    fn prunes_oldest_pairs_only() {
+        let dir = std::env::temp_dir().join(format!("svc-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for step in [0u64, 1000, 1200, 1400, 1600] {
+            std::fs::write(dir.join(format!("G_{step}.pth")), b"x").unwrap();
+            std::fs::write(dir.join(format!("D_{step}.pth")), b"x").unwrap();
+        }
+
+        let removed = prune_old_checkpoints(&dir, 2);
+        assert_eq!(removed, vec![1000, 1200]);
+        assert!(dir.join("G_0.pth").is_file());
+        assert!(dir.join("D_0.pth").is_file());
+        assert!(dir.join("G_1400.pth").is_file());
+        assert!(dir.join("G_1600.pth").is_file());
+        assert!(!dir.join("G_1000.pth").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
