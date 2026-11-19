@@ -25,9 +25,19 @@ if ($onPath) {
 }
 
 $zip = Join-Path $env:TEMP "ffmpeg-essentials.zip"
-Write-Host "下载 ffmpeg（约 80MB）"
-& curl.exe -L --fail --retry 3 --retry-delay 2 -C - -o $zip $Url
-if ($LASTEXITCODE -ne 0) { throw "ffmpeg 下载失败" }
+$fallback = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
+$sources = @($Url, $fallback)
+$downloaded = $false
+foreach ($src in $sources) {
+  Write-Host "下载 ffmpeg（约 80MB）：$src"
+  & curl.exe -L --fail --retry 3 --retry-delay 2 -C - -o $zip $src
+  if ($LASTEXITCODE -eq 0 -and (Test-Path $zip) -and (Get-Item $zip).Length -gt 10MB) {
+    $downloaded = $true
+    break
+  }
+  Write-Host "  该源失败，换下一个"
+}
+if (-not $downloaded) { throw "ffmpeg 下载失败（所有镜像均不可用）" }
 
 $extract = Join-Path $env:TEMP "ffmpeg-extract"
 if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }

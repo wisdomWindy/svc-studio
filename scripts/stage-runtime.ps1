@@ -114,3 +114,10 @@ if (Test-Path $ffmpegSrc) {
 } else {
   Write-Warning "没有找到 ffmpeg，安装包将不含内置 ffmpeg"
 }
+
+# Tauri 的 resources/bin/* glob 在目录为空时会直接报错，这里保证至少有一个占位文件
+$binDir = Join-Path $resources "bin"
+New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+if (-not (Get-ChildItem $binDir -File -ErrorAction SilentlyContinue)) {
+  Set-Content -Path (Join-Path $binDir "README.txt") -Value "ffmpeg 未内置；请安装系统 ffmpeg 或重新运行 fetch-ffmpeg.ps1" -Encoding UTF8
+}
