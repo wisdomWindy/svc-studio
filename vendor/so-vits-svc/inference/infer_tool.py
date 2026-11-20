@@ -269,7 +269,12 @@ class Svc(object):
               ):
         torchaudio.set_audio_backend("soundfile")
         wav, sr = torchaudio.load(raw_path)
-        if not hasattr(self,"audio_resample_transform") or self.audio16k_resample_transform.orig_freq != sr:
+        sr = int(sr.item() if torch.is_tensor(sr) else sr)
+        if (
+            not hasattr(self, "audio_resample_transform")
+            or self.audio_resample_transform.orig_freq != sr
+            or self.audio_resample_transform.new_freq != self.target_sample
+        ):
             self.audio_resample_transform = torchaudio.transforms.Resample(sr,self.target_sample)
         wav = self.audio_resample_transform(wav).numpy()[0]
         if spk_mix:

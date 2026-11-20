@@ -46,6 +46,12 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _ensure_project_dirs(project: str) -> None:
+    """4.8.1 的上游脚本假定 filelists/ 与 configs/ 已存在，不会自建。"""
+    root = Path(project)
+    for name in ("filelists", "configs"):
+        (root / name).mkdir(parents=True, exist_ok=True)
+
 def build_steps(
     project: str,
     upstream: str,
@@ -61,6 +67,7 @@ def build_steps(
     py = python or sys.executable
     up = Path(upstream)
     project_path = Path(project)
+    _ensure_project_dirs(project)
 
     resample = [py, str(up / "resample.py"), "--sr2", "44100", "--skip_loudnorm"]
     flist = [py, str(up / "preprocess_flist_config.py"), "--speech_encoder", encoder]
@@ -204,6 +211,7 @@ def run_chain(
     manifest_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     project_path = Path(project)
+    _ensure_project_dirs(project)
     steps = build_steps(project, upstream, encoder, f0, num_processes, use_diff, vol_aug)
     env = {
         "PYTHONPATH": str(Path(upstream)) + os.pathsep + os.environ.get("PYTHONPATH", ""),
@@ -217,6 +225,18 @@ def run_chain(
         ensure_configs_template(Path(project), Path(upstream))
     except Exception:  # noqa: BLE001
         # 补模板失败不致命：下一步会给出更具体的错误
+        pass
+
+    # 4.8.1 的 DataLoader 默认多进程；Windows 上由父进程 spawn 时容易崩（worker exited unexpectedly）
+    try:
+        cfg_path = Path(project) / "configs" / "config.json"
+        if cfg_path.is_file():
+            doc = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+            data = doc.setdefault("data", {})
+            if int(data.get("n_workers") or 0) != 0:
+                data["n_workers"] = 0
+                cfg_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:  # noqa: BLE001
         pass
 
     tuned = False

@@ -1,6 +1,30 @@
+import numpy as np
 import librosa
 import torch
 import torchaudio
+
+
+def _as_int_sr(sr):
+    if torch.is_tensor(sr):
+        return int(sr.item())
+    return int(sr)
+
+
+def load_audio_mono(path):
+    """
+    用 torchaudio 与 chunks2audio 同路径加载，避免与 librosa 在部分采样率下长度/对齐不一致
+    导致切点错位、叠音。返回 1D numpy 与整数采样率。
+    """
+    audio, sr = torchaudio.load(path)
+    sr = _as_int_sr(sr)
+    if audio.dim() == 2 and audio.shape[0] > 1:
+        audio = audio.mean(dim=0, keepdim=True)
+    elif audio.dim() == 1:
+        audio = audio.unsqueeze(0)
+    audio_1d = audio.squeeze(0)
+    if audio_1d.is_cuda:
+        audio_1d = audio_1d.cpu()
+    return audio_1d.numpy().astype(np.float32, copy=False), sr
 
 
 class Slicer:
@@ -118,7 +142,7 @@ class Slicer:
 
 
 def cut(audio_path, db_thresh=-30, min_len=5000):
-    audio, sr = librosa.load(audio_path, sr=None)
+    audio, sr = load_audio_mono(str(audio_path))
     slicer = Slicer(
         sr=sr,
         threshold=db_thresh,
@@ -130,10 +154,7 @@ def cut(audio_path, db_thresh=-30, min_len=5000):
 
 def chunks2audio(audio_path, chunks):
     chunks = dict(chunks)
-    audio, sr = torchaudio.load(audio_path)
-    if len(audio.shape) == 2 and audio.shape[1] >= 2:
-        audio = torch.mean(audio, dim=0).unsqueeze(0)
-    audio = audio.cpu().numpy()[0]
+    audio, sr = load_audio_mono(str(audio_path))
     result = []
     for k, v in chunks.items():
         tag = v["split_time"].split(",")

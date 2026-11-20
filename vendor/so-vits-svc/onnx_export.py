@@ -1,4 +1,3 @@
-import argparse
 import json
 
 import torch
@@ -6,16 +5,17 @@ import torch
 import utils
 from onnxexport.model_onnx_speaker_mix import SynthesizerTrn
 
-parser = argparse.ArgumentParser(description='SoVitsSvc OnnxExport')
 
-def OnnxExport(path=None):
+def main(path, config, model):
+    #path = "crs"
+
     device = torch.device("cpu")
-    hps = utils.get_hparams_from_file(f"checkpoints/{path}/config.json")
+    hps = utils.get_hparams_from_file(f"checkpoints/{path}/{config}")
     SVCVITS = SynthesizerTrn(
         hps.data.filter_length // 2 + 1,
         hps.train.segment_size // hps.data.hop_length,
         **hps.model)
-    _ = utils.load_checkpoint(f"checkpoints/{path}/model.pth", SVCVITS, None)
+    _ = utils.load_checkpoint(f"checkpoints/{path}/{model}", SVCVITS, None)
     _ = SVCVITS.eval().to(device)
     for i in SVCVITS.parameters():
         i.requires_grad = False
@@ -129,16 +129,22 @@ def OnnxExport(path=None):
         "CharaMix": export_mix,
         "Volume": SVCVITS.vol_embedding,
         "HiddenSize": SVCVITS.gin_channels,
-        "Characters": spklist,
-        "Cluster": ""
+        "Characters": spklist
     }
 
-    with open(f"checkpoints/{path}.json", 'w') as MoeVsConfFile:
+    with open(f"checkpoints/{path}/{model}_MoeVS.json", 'w') as MoeVsConfFile:
         json.dump(MoeVSConf, MoeVsConfFile, indent = 4)
 
 
 if __name__ == '__main__':
-    parser.add_argument('-n', '--model_name', type=str, default="TransformerFlow", help='模型文件夹名（根目录下新建ckeckpoints文件夹，在此文件夹下建立一个新的文件夹，放置模型，该文件夹名即为此项）')
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--path', type=str, default="crs")
+    parser.add_argument('-c', '--config', type=str, default='config.json')
+    parser.add_argument('-m', '--model', type=str, default='model.pth')
     args = parser.parse_args()
-    path = args.model_name
-    OnnxExport(path)
+    
+    path = args.path
+    config = args.config
+    model = args.model
+    main(path, config, model)

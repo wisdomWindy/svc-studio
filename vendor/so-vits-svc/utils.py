@@ -60,9 +60,18 @@ def plot_data_to_numpy(x, y):
     plt.tight_layout()
 
     fig.canvas.draw()
-    # matplotlib >= 3.10 移除了 tostring_rgb()，改用 buffer_rgba()。
-    data = np.asarray(fig.canvas.buffer_rgba(), dtype=np.uint8)
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))[..., :3]
+    data = None
+    _canvas = fig.canvas
+    if hasattr(_canvas, "buffer_rgba"):
+        _w, _h = _canvas.get_width_height()
+        data = np.frombuffer(_canvas.buffer_rgba(), dtype=np.uint8).reshape((_h, _w, 4))[:, :, :3]
+    elif hasattr(_canvas, "print_to_buffer"):
+        _buf, _size = _canvas.print_to_buffer()
+        _w, _h = _size
+        data = np.frombuffer(_buf, dtype=np.uint8).reshape((_h, _w, 4))[:, :, :3]
+    else:
+        data = np.fromstring(_canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     plt.close()
     return data
 
@@ -264,8 +273,18 @@ def plot_spectrogram_to_numpy(spectrogram):
   plt.tight_layout()
 
   fig.canvas.draw()
-  data = np.asarray(fig.canvas.buffer_rgba(), dtype=np.uint8)
-  data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))[..., :3]
+  data = None
+  _canvas = fig.canvas
+  if hasattr(_canvas, "buffer_rgba"):
+      _w, _h = _canvas.get_width_height()
+      data = np.frombuffer(_canvas.buffer_rgba(), dtype=np.uint8).reshape((_h, _w, 4))[:, :, :3]
+  elif hasattr(_canvas, "print_to_buffer"):
+      _buf, _size = _canvas.print_to_buffer()
+      _w, _h = _size
+      data = np.frombuffer(_buf, dtype=np.uint8).reshape((_h, _w, 4))[:, :, :3]
+  else:
+      data = np.fromstring(_canvas.tostring_rgb(), dtype=np.uint8, sep='')
+  data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
   plt.close()
   return data
 
@@ -293,8 +312,18 @@ def plot_alignment_to_numpy(alignment, info=None):
   plt.tight_layout()
 
   fig.canvas.draw()
-  data = np.asarray(fig.canvas.buffer_rgba(), dtype=np.uint8)
-  data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))[..., :3]
+  data = None
+  _canvas = fig.canvas
+  if hasattr(_canvas, "buffer_rgba"):
+      _w, _h = _canvas.get_width_height()
+      data = np.frombuffer(_canvas.buffer_rgba(), dtype=np.uint8).reshape((_h, _w, 4))[:, :, :3]
+  elif hasattr(_canvas, "print_to_buffer"):
+      _buf, _size = _canvas.print_to_buffer()
+      _w, _h = _size
+      data = np.frombuffer(_buf, dtype=np.uint8).reshape((_h, _w, 4))[:, :, :3]
+  else:
+      data = np.fromstring(_canvas.tostring_rgb(), dtype=np.uint8, sep='')
+  data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
   plt.close()
   return data
 

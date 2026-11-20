@@ -46,6 +46,21 @@ def build_smoke_config(
     return doc
 
 
+
+def force_single_process_loader(config_path: str) -> None:
+    """4.8.1 的 DataLoader 默认多进程；在 Windows 上由父进程 spawn 常崩，统一改成 0。"""
+    try:
+        path = Path(config_path)
+        if not path.is_file():
+            return
+        doc = json.loads(path.read_text(encoding="utf-8-sig"))
+        data = doc.setdefault("data", {})
+        if int(data.get("n_workers") or 0) != 0:
+            data["n_workers"] = 0
+            path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
 def build_argv(
     upstream: str,
     config_path: str,
@@ -129,6 +144,10 @@ def run_train(
     _emit_result: bool = True,
 ) -> Dict[str, Any]:
     project_path = Path(project)
+    _cfg = Path(config_path)
+    if not _cfg.is_absolute():
+        _cfg = project_path / config_path
+    force_single_process_loader(str(_cfg))
     argv = build_argv(upstream, config_path, model_dir, kind=kind)
     if train_script:
         argv[1] = train_script

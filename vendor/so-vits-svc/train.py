@@ -38,19 +38,35 @@ def main():
     hps = utils.get_hparams()
 
     n_gpus = torch.cuda.device_count()
-    os.environ['MASTER_ADDR'] = '127.0.0.1'  # Windows gloo 不接受 localhost 解析
+    os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = hps.train.port
 
-    # 单卡时不起 DDP：Windows 上 gloo 的设备解析不稳定，且单卡没有通信需求。
-    if n_gpus == 1:
-        run(0, 1, hps)
-    else:
-        mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
+    mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
 
 
-def _raw(model):
-    return model.module if hasattr(model, 'module') else model
 
+class _NoDDP:
+    """单卡时替代 DDP：保留 .module 语义，但不初始化 process group。
+
+    Windows 上 gloo 常因网卡探测失败（unsupported gloo device），而 4.8.1 的
+    train.py 无条件走 DDP 包装；这里在 n_gpus == 1 时用轻量包装替代。
+    """
+
+    def __init__(self, module):
+        object.__setattr__(self, "_module", module)
+
+    @property
+    def module(self):
+        return object.__getattribute__(self, "_module")
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_module"), name)
+
+    def __setattr__(self, name, value):
+        setattr(object.__getattribute__(self, "_module"), name, value)
+
+    def __call__(self, *args, **kwargs):
+        return object.__getattribute__(self, "_module")(*args, **kwargs)
 
 def run(rank, n_gpus, hps):
     global global_step
@@ -61,7 +77,8 @@ def run(rank, n_gpus, hps):
         writer = SummaryWriter(log_dir=hps.model_dir)
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval"))
     
-    # 只有多卡才需要进程组；单卡直接跑，避免 Windows gloo 设备解析问题。
+    # for pytorch on win, backend use gloo    
+    # 单卡（n_gpus == 1）不启用 torch.distributed：Windows 上 gloo 常因网卡探测失败
     if n_gpus > 1:
         dist.init_process_group(backend='gloo' if os.name == 'nt' else 'nccl', init_method='env://', world_size=n_gpus, rank=rank)
     torch.manual_seed(hps.train.seed)
@@ -69,16 +86,14 @@ def run(rank, n_gpus, hps):
     collate_fn = TextAudioCollate()
     all_in_mem = hps.train.all_in_mem   # If you have enough memory, turn on this option to avoid disk IO and speed up training.
     train_dataset = TextAudioSpeakerLoader(hps.data.training_files, hps, all_in_mem=all_in_mem)
-    # Windows + 单进程训练时，DataLoader 子进程容易在评估阶段退出（worker exited unexpectedly）。
-    # 数据集在内存里足够快，默认 0 个 worker 更稳；需要并行时再用 all_in_mem 以外的配置调大。
-    num_workers = 0 if os.name == 'nt' else (5 if multiprocessing.cpu_count() > 4 else multiprocessing.cpu_count())
+    num_workers = 5 if multiprocessing.cpu_count() > 4 else multiprocessing.cpu_count()
     if all_in_mem:
         num_workers = 0
-    train_loader = DataLoader(train_dataset, num_workers=num_workers, shuffle=False, pin_memory=True,
+    train_loader = DataLoader(train_dataset, num_workers=num_workers, shuffle=True, pin_memory=True,
                               batch_size=hps.train.batch_size, collate_fn=collate_fn)
     if rank == 0:
         eval_dataset = TextAudioSpeakerLoader(hps.data.validation_files, hps, all_in_mem=all_in_mem,vol_aug = False)
-        eval_loader = DataLoader(eval_dataset, num_workers=0, shuffle=False,
+        eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
                                  batch_size=1, pin_memory=False,
                                  drop_last=False, collate_fn=collate_fn)
 
@@ -99,7 +114,12 @@ def run(rank, n_gpus, hps):
         eps=hps.train.eps)
     if n_gpus > 1:
         net_g = DDP(net_g, device_ids=[rank])  # , find_unused_parameters=True)
+    else:
+        net_g = _NoDDP(net_g)
+    if n_gpus > 1:
         net_d = DDP(net_d, device_ids=[rank])
+    else:
+        net_d = _NoDDP(net_d)
 
     skip_optimizer = False
     try:
@@ -215,7 +235,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
                 loss_fm = feature_loss(fmap_r, fmap_g)
                 loss_gen, losses_gen = generator_loss(y_d_hat_g)
-                loss_lf0 = F.mse_loss(pred_lf0, lf0) if _raw(net_g).use_automatic_f0_prediction else 0
+                loss_lf0 = F.mse_loss(pred_lf0, lf0) if net_g.module.use_automatic_f0_prediction else 0
                 loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl + loss_lf0
         optim_g.zero_grad()
         scaler.scale(loss_gen_all).backward()
@@ -235,9 +255,6 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                     epoch,
                     100. * batch_idx / len(train_loader)))
                 logger.info(f"Losses: {[x.item() for x in losses]}, step: {global_step}, lr: {lr}, reference_loss: {reference_loss}")
-                if rank == 0:
-                    # E3 要求"峰值显存有记录"：每 50 步打一次，直接用 torch 的峰值统计。
-                    logger.info(f"VRAM peak: {torch.cuda.max_memory_allocated() / 1024**2:.0f} MB")
 
                 scalar_dict = {"loss/g/total": loss_gen_all, "loss/d/total": loss_disc_all, "learning_rate": lr,
                                "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
@@ -253,7 +270,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy())
                 }
 
-                if _raw(net_g).use_automatic_f0_prediction:
+                if net_g.module.use_automatic_f0_prediction:
                     image_dict.update({
                         "all/lf0": utils.plot_data_to_numpy(lf0[0, 0, :].cpu().numpy(),
                                                               pred_lf0[0, 0, :].detach().cpu().numpy()),
@@ -309,7 +326,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 hps.data.sampling_rate,
                 hps.data.mel_fmin,
                 hps.data.mel_fmax)
-            y_hat,_ = _raw(generator).infer(c, f0, uv, g=g,vol = volume)
+            y_hat,_ = generator.module.infer(c, f0, uv, g=g,vol = volume)
 
             y_hat_mel = mel_spectrogram_torch(
                 y_hat.squeeze(1).float(),
