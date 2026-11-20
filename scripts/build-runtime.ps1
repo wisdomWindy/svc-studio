@@ -110,11 +110,20 @@ Write-Host "==> 安装 cu128 版 torch/torchaudio"
 if ($LASTEXITCODE -ne 0) { throw "cu128 torch 安装失败" }
 
 Write-Host "==> 安装其余依赖"
-& $python -m pip install --no-warn-script-location -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
-  "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
-  "matplotlib" "pandas" "loguru" `
-  "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
-if ($LASTEXITCODE -ne 0) { throw "依赖安装失败" }
+# PyPI 偶发断流（IncompleteRead）：pip 自己重试不够，外层再重试并加大--retries/--timeout
+$depsOk = $false
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+  & $python -m pip install --no-warn-script-location --prefer-binary `
+    --retries 10 --timeout 60 `
+    -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
+    "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
+    "matplotlib" "pandas" "loguru" `
+    "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
+  if ($LASTEXITCODE -eq 0) { $depsOk = $true; break }
+  Write-Host "    第 $attempt 次依赖安装失败（多为网络断流），$(20 * $attempt) 秒后重试"
+  Start-Sleep -Seconds (20 * $attempt)
+}
+if (-not $depsOk) { throw "依赖安装失败（已重试 5 次，请检查网络或镜像源）" }
 
 Write-Host "==> 安装 fairseq-fixed"
 $env:INCLUDE = Join-Path $out "include"
