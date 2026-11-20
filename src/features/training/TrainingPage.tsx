@@ -22,6 +22,7 @@ export function TrainingPage() {
   const [error, setError] = useState<string | null>(null);
   const [gpuBusy, setGpuBusy] = useState(false);
   const [running, setRunning] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ step: number | null; total: number | null }>({
     step: null,
     total: null,
@@ -146,6 +147,36 @@ export function TrainingPage() {
     };
   }, [project?.id, jobId]);
 
+
+  // 训练是否在跑要以任务表为准：页面刷新、从任务页启动都要能对上
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    async function poll() {
+      try {
+        const jobs = await backend.listJobs(50);
+        if (cancelled) return;
+        const active = jobs.find(
+          (j) =>
+            j.type.startsWith("train_") &&
+            (j.status === "running" || j.status === "queued") &&
+            (!j.projectId || j.projectId === project!.id),
+        );
+        setRunning(Boolean(active));
+        setActiveJobId(active?.id ?? null);
+        if (active) setJobId(active.id);
+      } catch {
+        /* 拿不到列表就保持现状 */
+      }
+    }
+    void poll();
+    const timer = window.setInterval(poll, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [project?.id]);
+
   async function start(smoke: boolean, resume = false) {
     if (!project) return;
     setBusy(smoke ? "smoke" : "train");
@@ -164,9 +195,10 @@ export function TrainingPage() {
   }
 
   async function stop() {
-    if (!jobId) return;
+    const target = activeJobId ?? jobId;
+    if (!target) return;
     try {
-      await backend.trainStop(jobId);
+      await backend.trainStop(target);
       setMessage("已请求停止，进度会保留到最近一次 checkpoint");
     setRunning(false);
     } catch (e) {
@@ -214,7 +246,7 @@ export function TrainingPage() {
             ) : (
               <>
                 <Button
-                  disabled={!!busy || gate?.trainable === false}
+                  disabled={!!busy || running || gate?.trainable === false}
                   onClick={() => void start(true)}
                 >
                   {busy === "smoke" ? "启动中…" : "100 步冒烟"}

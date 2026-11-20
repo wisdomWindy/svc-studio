@@ -517,6 +517,18 @@ pub(crate) fn train_start_impl(
         // 同一时刻只允许一个吃显存的作业；排队期间任务保持 running（进度 0）。
         let _gpu = scheduler.acquire().await;
 
+        // 排队期间可能已被用户取消：拿到执行权后再确认一次，避免“点了停止还在跑”
+        let cancelled_while_queued = db
+            .with(|c| jobs::get(c, &job_for_task))
+            .ok()
+            .flatten()
+            .map(|j| j.status == "cancelled")
+            .unwrap_or(false);
+        if cancelled_while_queued {
+            tracing::info!(job = %job_for_task, "queued job cancelled before start");
+            return;
+        }
+
         fn make_spec(
             job: &str,
             python: &Path,
