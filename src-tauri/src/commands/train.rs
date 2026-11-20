@@ -395,8 +395,19 @@ pub fn train_start(
     kind: Option<String>,
     resume: Option<bool>,
 ) -> AppResult<String> {
+    train_start_impl(&state, project_id, smoke, kind, resume)
+}
+
+/// 内部实现：不依赖 tauri State，供重试调度直接调用。
+pub(crate) fn train_start_impl(
+    state: &AppPaths,
+    project_id: String,
+    smoke: Option<bool>,
+    kind: Option<String>,
+    resume: Option<bool>,
+) -> AppResult<String> {
     crate::core::gate::require_from(&state.doctor)?;
-    let root = project_root(&state, &project_id)?;
+    let root = project_root(state, &project_id)?;
     if !root.join("configs/config.json").is_file() {
         return Err(Box::new(AppError::new(
             "SVC-4001",
@@ -408,7 +419,7 @@ pub fn train_start(
     let wants_resume = resume.unwrap_or(false);
 
     // 同一时间只允许一个训练：两路训练会争抢显存，表现为反复重启、永远 0 步。
-    if let Some(active) = find_active_train(&state)? {
+    if let Some(active) = find_active_train(state)? {
         return Err(Box::new(AppError::new(
             "SVC-5004",
             "已有训练在运行",
@@ -442,7 +453,7 @@ pub fn train_start(
     }
 
     let upstream = resolve_upstream_dir();
-    let python = crate::commands::settings::python_for_state(&state)?;
+    let python = crate::commands::settings::python_for_state(state)?;
     let worker_dir = resolve_worker_dir();
     if !upstream.join("train.py").is_file() {
         return Err(Box::new(AppError::new(

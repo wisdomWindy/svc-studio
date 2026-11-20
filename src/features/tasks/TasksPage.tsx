@@ -129,19 +129,38 @@ export function TasksPage() {
                   <td className="px-3 py-1.5 tabular text-muted">{formatClock(job.startedAt)}</td>
                   <td className="px-3 py-1.5 text-right">
                     {job.status === "succeeded" && job.type === "inference" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void backend
-                            .jobOpenOutput(job.id)
-                            .then(() => setError(null))
-                            .catch((err) => setError(toErrorText(err)));
-                        }}
-                      >
-                        查看
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void backend
+                              .jobOpenFolder(job.id)
+                              .then(() => setError(null))
+                              .catch((err) => setError(toErrorText(err)));
+                          }}
+                        >
+                          打开文件夹
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!window.confirm("删除这次推理的音频与报告？不可恢复。")) return;
+                            void backend
+                              .jobDeleteOutput(job.id)
+                              .then(() => {
+                                setError(null);
+                                void backend.listJobs(100).then(setJobs).catch(() => undefined);
+                              })
+                              .catch((err) => setError(toErrorText(err)));
+                          }}
+                        >
+                          删除
+                        </Button>
+                      </>
                     )}
                     {(job.status === "running" || job.status === "queued") && (
                       <Button
@@ -163,7 +182,10 @@ export function TasksPage() {
                           e.stopPropagation();
                           void backend
                             .retryJob(job.id)
-                            .then(() => setError(null))
+                            .then(() => {
+                              setError(null);
+                              void backend.listJobs(100).then(setJobs).catch(() => undefined);
+                            })
                             .catch((err) =>
                               setError(toErrorText(err)),
                             );

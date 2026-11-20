@@ -102,7 +102,83 @@ pub async fn cancel_job(state: State<'_, AppPaths>, id: String) -> AppResult<Job
         .ok_or_else(|| Box::new(AppError::new("SVC-7003", "取消后读不回任务", id)))
 }
 
-/// 打开某次推理的产物：只有一个音频就用默认播放器打开，多个则打开所在文件夹。
+/// 打开该任务所属推理批次所在文件夹（资源管理器）。
+#[tauri::command]
+pub fn job_open_folder(state: State<'_, AppPaths>, id: String) -> AppResult<String> {
+    let batch = latest_batch_of(&state, &id)?;
+    let dir = batch.join("outputs");
+    let target = if dir.is_dir() { dir } else { batch };
+    crate::commands::projects::open_in_explorer(&target)?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+/// 删除该任务的推理产物（整批音频 + 报告目录）。
+#[tauri::command]
+pub fn job_delete_output(state: State<'_, AppPaths>, id: String) -> AppResult<String> {
+    let batch = latest_batch_of(&state, &id)?;
+    std::fs::remove_dir_all(&batch).map_err(|e| {
+        Box::new(AppError::new(
+            "SVC-6001",
+            "删除推理产物失败",
+            format!("{}: {e}", batch.display()),
+        ))
+    })?;
+    let now = crate::infra::db::now_iso();
+    state.db.with(|c| {
+        jobs::append_event(
+            c,
+            &id,
+            &jobs::NewJobEvent {
+                level: "info",
+                code: None,
+                message: "已删除推理产物",
+                data_json: Some(&serde_json::json!({ "batch": batch }).to_string()),
+                ts: &now,
+            },
+        )
+    })?;
+    Ok(batch.to_string_lossy().to_string())
+}
+
+/// 取任务对应项目下最新的推理批次目录。
+fn latest_batch_of(state: &AppPaths, id: &str) -> AppResult<PathBuf> {
+    let job = state
+        .db
+        .with(|c| jobs::get(c, id))?
+        .ok_or_else(|| Box::new(AppError::new("SVC-7002", "任务不存在", id.to_string())))?;
+
+    let project_id = job.project_id.ok_or_else(|| {
+        Box::new(AppError::new(
+            "SVC-7002",
+            "任务没有关联项目",
+            id.to_string(),
+        ))
+    })?;
+    let project = state
+        .db
+        .with(|c| crate::core::repo::projects::get(c, &project_id))?
+        .ok_or_else(|| Box::new(AppError::new("SVC-7004", "项目不存在", project_id.clone())))?;
+
+    let outputs_root = PathBuf::from(&project.root_path).join("outputs");
+    std::fs::read_dir(&outputs_root)
+        .map_err(|e| {
+            Box::new(AppError::new(
+                "SVC-6001",
+                "找不到推理产物目录",
+                e.to_string(),
+            ))
+        })?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .max_by_key(|p| {
+            std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        })
+        .ok_or_else(|| Box::new(AppError::new("SVC-6001", "还没有任何推理批次", "")))
+}
+
 #[tauri::command]
 pub fn job_open_output(state: State<'_, AppPaths>, id: String) -> AppResult<String> {
     let job = state

@@ -108,11 +108,22 @@ pub fn preprocess_start(
     vol_aug: Option<bool>,
     num_processes: Option<i64>,
 ) -> AppResult<String> {
+    preprocess_start_impl(&state, project_id, use_diff, vol_aug, num_processes)
+}
+
+/// 内部实现：不依赖 tauri State，供重试调度直接调用。
+pub(crate) fn preprocess_start_impl(
+    state: &AppPaths,
+    project_id: String,
+    use_diff: Option<bool>,
+    vol_aug: Option<bool>,
+    num_processes: Option<i64>,
+) -> AppResult<String> {
     crate::core::gate::require_from(&state.doctor)?;
-    let root = project_root(&state, &project_id)?;
-    let dataset_id = latest_dataset(&state, &project_id)?;
+    let root = project_root(state, &project_id)?;
+    let dataset_id = latest_dataset(state, &project_id)?;
     // C5：QC 阻断项未清零不允许进入预处理。
-    let verdict = dataset_qc_verdict_inner(&state, &dataset_id)?;
+    let verdict = dataset_qc_verdict_inner(state, &dataset_id)?;
     match verdict {
         None => {
             return Err(Box::new(AppError::new(
@@ -130,7 +141,7 @@ pub fn preprocess_start(
         }
         Some(_) => {}
     }
-    if has_active_job(&state, &project_id)? {
+    if has_active_job(state, &project_id)? {
         return Err(Box::new(AppError::new(
             "SVC-7004",
             "该项目还有未结束的任务",

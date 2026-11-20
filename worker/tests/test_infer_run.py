@@ -85,7 +85,7 @@ def test_run_batch_writes_report_and_outputs(work: Path) -> None:
     assert report["summary"]["status"] == "succeeded"
     batch = Path(report["batch"])
     assert (batch / "report.json").is_file()
-    assert (batch / "inputs" / "a.wav").is_file()
+    # 推理完成后临时副本会被清理，只保留 outputs\n    assert not (batch / "inputs").exists()
     assert (batch / "outputs" / "a.wav").is_file()
     saved = json.loads((batch / "report.json").read_text(encoding="utf-8"))
     assert saved["paramsHash"] == report["paramsHash"]

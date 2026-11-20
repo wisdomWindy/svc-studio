@@ -219,6 +219,8 @@ export const backend = {
       "jobs_summary",
     ),
   jobOpenOutput: (id: string) => call<string>("job_open_output", { id }),
+  jobOpenFolder: (id: string) => call<string>("job_open_folder", { id }),
+  jobDeleteOutput: (id: string) => call<string>("job_delete_output", { id }),
   cancelJob: (id: string) => call<Job>("cancel_job", { id }),
   retryJob: (id: string) => call<Job>("retry_job", { id }),
   gpuBusy: () => call<boolean>("gpu_busy"),

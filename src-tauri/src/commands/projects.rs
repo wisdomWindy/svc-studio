@@ -215,7 +215,7 @@ pub fn project_open_dir(state: State<'_, AppPaths>, id: String) -> AppResult<()>
     open_in_explorer(&root)
 }
 
-fn open_in_explorer(path: &std::path::Path) -> AppResult<()> {
+pub(crate) fn open_in_explorer(path: &std::path::Path) -> AppResult<()> {
     if !path.is_dir() {
         return Err(Box::new(AppError::new(
             "SVC-7004",

@@ -225,6 +225,17 @@ def resolve_spk(config_path: str, spk: str) -> tuple[str, str]:
     return first, f"模型里的说话人是「{first}」，请求的「{spk}」不存在，已自动改用「{first}」"
 
 
+
+def cleanup_intermediates(batch: Path) -> None:
+    """删掉推理用的临时副本：inputs/（参考音频拷贝）与 stems/（分离中间件）。
+
+    用户的原始文件在别处，这里只是副本；留着既占空间又容易和训练素材混淆。
+    """
+    import shutil
+
+    for name in ("inputs", "stems"):
+        shutil.rmtree(batch / name, ignore_errors=True)
+
 def run_batch(
     root: Path,
     model_path: str,
@@ -333,6 +344,8 @@ def run_batch(
     ok = sum(1 for i in items if i["status"] == "ok")
     failed = len(items) - ok
     status = "succeeded" if failed == 0 else ("failed" if ok == 0 else "succeeded_with_errors")
+
+    cleanup_intermediates(batch)
 
     report = {
         "schema": "svcstudio.infer/1",

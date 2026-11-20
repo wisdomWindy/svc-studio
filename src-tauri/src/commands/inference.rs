@@ -309,6 +309,21 @@ pub fn infer_start(
     spk: Option<String>,
     batch_name: Option<String>,
 ) -> AppResult<String> {
+    infer_start_impl(
+        &state, project_id, model_id, inputs, params, spk, batch_name,
+    )
+}
+
+/// 内部实现：不依赖 tauri State，供重试调度直接调用。
+pub(crate) fn infer_start_impl(
+    state: &AppPaths,
+    project_id: String,
+    model_id: String,
+    inputs: Vec<String>,
+    params: Value,
+    spk: Option<String>,
+    batch_name: Option<String>,
+) -> AppResult<String> {
     if inputs.is_empty() {
         return Err(Box::new(AppError::new(
             "SVC-6004",
@@ -358,7 +373,15 @@ pub fn infer_start(
             &job,
             "inference",
             Some(&project_id),
-            &serde_json::json!({"modelId": model_id, "count": inputs.len()}).to_string(),
+            &serde_json::json!({
+                "modelId": model_id,
+                "count": inputs.len(),
+                "inputs": inputs,
+                "params": params,
+                "spk": spk,
+                "batchName": batch_name,
+            })
+            .to_string(),
             &now,
         )?;
         crate::core::repo::jobs::set_status(c, &job, "running", None, &now)
@@ -366,7 +389,7 @@ pub fn infer_start(
 
     let mut spec = crate::bridge::host::SpawnSpec::new(
         job.clone(),
-        crate::commands::settings::python_for_state(&state)?,
+        crate::commands::settings::python_for_state(state)?,
     )
     .arg("-m")
     .arg("svc_bridge")
