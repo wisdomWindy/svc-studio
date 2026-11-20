@@ -88,6 +88,29 @@ fn dataset_raw(root: &Path) -> PathBuf {
     root.join("dataset_raw")
 }
 
+/// 统计目录下的音频文件数（只用于估算超时）。
+fn count_audio_files(dir: &std::path::Path) -> usize {
+    const EXTS: [&str; 8] = ["wav", "flac", "mp3", "m4a", "ogg", "aac", "wma", "opus"];
+    fn walk(dir: &std::path::Path, acc: &mut usize) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, acc);
+            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if EXTS.iter().any(|e| e.eq_ignore_ascii_case(ext)) {
+                    *acc += 1;
+                }
+            }
+        }
+    }
+    let mut count = 0;
+    walk(dir, &mut count);
+    count
+}
+
 #[tauri::command]
 pub async fn dataset_scan(
     state: State<'_, AppPaths>,
@@ -96,9 +119,12 @@ pub async fn dataset_scan(
     let python = crate::commands::settings::python_for_state(&state)?;
     let root = project_root(&state, &project_id)?;
     let dir = dataset_raw(&root);
-    run_json(
+    let budget = std::time::Duration::from_secs(30 + 2 * count_audio_files(&dir).max(1) as u64);
+    crate::core::worker_cli::run_json_with(
         &python,
+        &crate::core::runtime::resolve_worker_dir(),
         &["dataset", "scan", "--root", &dir.to_string_lossy()],
+        budget,
     )
     .await
 }
@@ -118,8 +144,12 @@ pub async fn dataset_qc(state: State<'_, AppPaths>, project_id: String) -> AppRe
     }
 
     let report_path = root.join("reports").join("qc_report.json");
-    let value = run_json(
+    // QC 要逐个文件读音频算指标：按文件数给预算，避免大目录被固定 120s 掐断
+    let files = count_audio_files(&dir);
+    let budget = std::time::Duration::from_secs(60 + 2 * files.max(1) as u64);
+    let value = crate::core::worker_cli::run_json_with(
         &python,
+        &crate::core::runtime::resolve_worker_dir(),
         &[
             "dataset",
             "qc",
@@ -128,6 +158,7 @@ pub async fn dataset_qc(state: State<'_, AppPaths>, project_id: String) -> AppRe
             "--out",
             &report_path.to_string_lossy(),
         ],
+        budget,
     )
     .await?;
 

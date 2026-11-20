@@ -120,8 +120,9 @@ export const backend = {
     ),
   datasetScan: (projectId: string) =>
     call<Record<string, unknown>>("dataset_scan", { projectId }),
-  datasetQc: (projectId: string) =>
-    call<Record<string, unknown>>("dataset_qc", { projectId }),
+  // QC 逐个文件读音频，大目录要几分钟：IPC 超时放宽到 30 分钟
+  datasetQc: (projectId: string, timeoutMs = 30 * 60 * 1000) =>
+    call<Record<string, unknown>>("dataset_qc", { projectId }, timeoutMs),
   datasetSlice: (
     projectId: string,
     opts: { minSeconds?: number; maxSeconds?: number; minIntervalMs?: number } = {},
