@@ -78,9 +78,12 @@ export function AppShell() {
       </a>
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-line bg-surface">
         <div className="drag-region flex h-14 items-center gap-2 px-4">
-          <div className="grid size-7 place-items-center rounded-md bg-accent text-[13px] font-bold text-white">
-            S
-          </div>
+          <img
+            src="/app-icon.png"
+            alt="SVC Studio"
+            className="size-7 rounded-md"
+            draggable={false}
+          />
           <div className="no-drag">
             <div className="text-[13px] font-semibold leading-tight">SVC Studio</div>
             <div className="text-[11px] leading-tight text-muted">
