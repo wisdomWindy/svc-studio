@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { UpdateChecker } from "./UpdateChecker";
-import { DonateCard } from "./DonateCard";
+import { DonateDialog } from "./DonateDialog";
 import { backend, type BootstrapInfo, type DoctorReport } from "@/lib/backend";
 import { toErrorText } from "@/lib/errors";
 
@@ -21,6 +22,18 @@ export function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [donateOpen, setDonateOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // 侧边栏「支持作者」带 donate=1 进来时自动弹窗
+  useEffect(() => {
+    if (searchParams.get("donate") === "1") {
+      setDonateOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("donate");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     void backend
@@ -83,6 +96,9 @@ export function SettingsPage() {
             <Button disabled={busy} onClick={() => void runDoctor()}>
               {busy ? "检查中…" : "环境自检"}
             </Button>
+            <Button disabled={busy} onClick={() => setDonateOpen(true)}>
+              支持开发
+            </Button>
             <Button disabled={busy} onClick={() => void exportDiagnostics()}>
               导出诊断包
             </Button>
@@ -92,10 +108,6 @@ export function SettingsPage() {
 
       {message && <p className="mb-2 text-[12px] text-ok">{message}</p>}
       {error && <ErrorNotice error={error} compact />}
-
-      <div className="mb-3">
-        <DonateCard />
-      </div>
 
       <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
         <div className="rounded-lg border border-line bg-surface p-3.5">
@@ -156,6 +168,8 @@ export function SettingsPage() {
       <p className="mt-3 text-[11px] leading-relaxed text-muted">
         本软件包含 so-vits-svc（AGPL-3.0）。源码与构建方式随安装包提供；不内置任何第三方模型权重；诊断包不包含音频、特征或权重。
       </p>
+      <DonateDialog open={donateOpen} onClose={() => setDonateOpen(false)} />
+
     </>
   );
 }

@@ -122,7 +122,7 @@ export function AppShell() {
           ))}
         </nav>
 
-        <NavLink to="/settings" className="mx-2 mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-muted transition hover:bg-raised hover:text-fg">
+        <NavLink to="/settings?donate=1" className="mx-2 mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-muted transition hover:bg-raised hover:text-fg">
           <span aria-hidden>♥</span> 支持作者
         </NavLink>
         <div className="border-t border-line px-3 py-2 text-[11px] text-muted">
