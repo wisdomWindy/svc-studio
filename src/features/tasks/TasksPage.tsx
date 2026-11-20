@@ -82,7 +82,6 @@ export function TasksPage() {
     <>
       <PageHeader
         title="任务"
-        description="所有作业的统一视图：谁在跑、跑到哪、为什么失败。状态由后端状态机维护，前端只呈现。"
         badge={
           <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">
             {jobs.length} 条
