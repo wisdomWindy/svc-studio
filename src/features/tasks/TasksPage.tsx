@@ -22,6 +22,17 @@ const LEVEL_TONE: Record<string, string> = {
   debug: "text-muted",
 };
 
+/** 产物已被删除的任务不再显示「打开文件夹 / 删除」。 */
+function hasDeletedOutput(job: Job): boolean {
+  if (!job.payloadJson) return false;
+  try {
+    const payload = JSON.parse(job.payloadJson) as { outputDeleted?: boolean };
+    return payload.outputDeleted === true;
+  } catch {
+    return false;
+  }
+}
+
 export function TasksPage() {
   const project = useActiveProject();
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -127,7 +138,9 @@ export function TasksPage() {
                   <td className="px-3 py-1.5 tabular">{percent(job.progress)}</td>
                   <td className="px-3 py-1.5 tabular text-muted">{formatClock(job.startedAt)}</td>
                   <td className="px-3 py-1.5 text-right">
-                    {job.status === "succeeded" && job.type === "inference" && (
+                    {job.status === "succeeded" &&
+                      job.type === "inference" &&
+                      !hasDeletedOutput(job) && (
                       <>
                         <Button
                           size="sm"

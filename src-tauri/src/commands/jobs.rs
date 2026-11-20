@@ -125,6 +125,18 @@ pub fn job_delete_output(state: State<'_, AppPaths>, id: String) -> AppResult<St
     })?;
     let now = crate::infra::db::now_iso();
     state.db.with(|c| {
+        // 产物已删：在 payload 上打标记，列表里据此隐藏「打开文件夹/删除」
+        if let Ok(Some(job)) = jobs::get(c, &id) {
+            let mut payload: serde_json::Value =
+                serde_json::from_str(&job.payload_json).unwrap_or_else(|_| serde_json::json!({}));
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("outputDeleted".into(), serde_json::Value::Bool(true));
+            }
+            c.execute(
+                "UPDATE jobs SET payload_json = ?1 WHERE id = ?2",
+                rusqlite::params![payload.to_string(), id],
+            )?;
+        }
         jobs::append_event(
             c,
             &id,

@@ -46,6 +46,7 @@ export interface Job {
   step: number | null;
   total: number | null;
   errorCode: string | null;
+  payloadJson?: string;
   startedAt: string | null;
   finishedAt: string | null;
 }
