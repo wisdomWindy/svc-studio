@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { UpdateChecker } from "./UpdateChecker";
+import { DonateCard } from "./DonateCard";
 import { backend, type BootstrapInfo, type DoctorReport } from "@/lib/backend";
 import { toErrorText } from "@/lib/errors";
 
@@ -91,6 +92,10 @@ export function SettingsPage() {
 
       {message && <p className="mb-2 text-[12px] text-ok">{message}</p>}
       {error && <ErrorNotice error={error} compact />}
+
+      <div className="mb-3">
+        <DonateCard />
+      </div>
 
       <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
         <div className="rounded-lg border border-line bg-surface p-3.5">
