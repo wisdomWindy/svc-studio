@@ -55,7 +55,7 @@ def force_single_process_loader(config_path: str) -> None:
             return
         doc = json.loads(path.read_text(encoding="utf-8-sig"))
         data = doc.setdefault("data", {})
-        if int(data.get("n_workers") or 0) != 0:
+        if data.get("n_workers") != 0:
             data["n_workers"] = 0
             path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:  # noqa: BLE001
@@ -110,6 +110,24 @@ def _parse_step(line: str) -> Optional[Dict[str, Any]]:
         "lr": float(lr_match.group(1)) if lr_match else None,
     }
 
+
+
+def classify_oom(text: str) -> str:
+    """区分两类“out of memory”：
+
+    - cuda：显存不足（torch.cuda.OutOfMemoryError / CUDA out of memory）
+    - host：主机内存不足（MemoryError / 无法分配）
+
+    只有 cuda 才值得把 batch_size 减半重试；主机内存不足减 batch 没用。
+    """
+    lowered = text.lower()
+    if "cuda out of memory" in lowered or "cudaerroroutofmemory" in lowered:
+        return "cuda"
+    if "outofmemoryerror" in lowered and "cuda" in lowered:
+        return "cuda"
+    if "memoryerror" in lowered or "out of memory" in lowered or "outofmemory" in lowered:
+        return "host"
+    return ""
 
 def halve_batch_size(config_path: str, minimum: int = 1) -> Optional[int]:
     """OOM 自愈：把 train.batch_size 减半并原子写回；没有该字段就返回 None。"""
@@ -182,6 +200,7 @@ def run_train(
 
     last_step = 0
     oom = False
+    host_oom = False
     diverged = False
     stopped_for_smoke = False
     assert proc.stdout is not None
@@ -189,9 +208,27 @@ def run_train(
         for line in proc.stdout:
             line = line.rstrip("\n")
             lowered = line.lower()
-            if any(hint in lowered for hint in OOM_HINTS):
+            oom_kind = classify_oom(lowered)
+            if oom_kind == "cuda":
                 oom = True
-                send({"kind": "error", "code": "SVC-5001", "message": "显存不足", "cause": line})
+                send(
+                    {
+                        "kind": "error",
+                        "code": "SVC-5001",
+                        "message": "显存不足",
+                        "cause": line,
+                    }
+                )
+                break
+            if oom_kind == "host":
+                host_oom = True
+                send(
+                    {
+                        "kind": "log",
+                        "level": "error",
+                        "message": "内存不足：这是主机 RAM 不足（不是显存），请关闭其他程序后重试",
+                    }
+                )
                 break
             parsed = _parse_step(line)
             if parsed and parsed.get("diverged"):
@@ -257,12 +294,24 @@ def run_train(
         "exitCode": exit_code,
         "lastStep": last_step,
         "oom": oom,
+        "hostOom": host_oom,
         "diverged": diverged,
         "stoppedForSmoke": stopped_for_smoke,
         "elapsedSeconds": round(time.time() - started, 1),
         "modelDir": model_dir,
         "finishedAt": _now(),
     }
+    # 主机内存不足（不是显存）：减 batch 没用，直接给出可操作提示
+    if host_oom and not oom:
+        send(
+            {
+                "kind": "log",
+                "level": "error",
+                "message": "内存不足：这是主机 RAM 不足（不是显存）。请关闭其他程序，"
+                "或在设置里把并发降下来后重试；减 batch_size 对这种情况无效。",
+            }
+        )
+
     # OOM 自愈：降一半 batch_size 后重试一次；只重试一次，避免死循环。
     if oom and retry_oom:
         cfg_abs = Path(config_path)

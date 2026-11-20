@@ -233,7 +233,7 @@ def run_chain(
         if cfg_path.is_file():
             doc = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
             data = doc.setdefault("data", {})
-            if int(data.get("n_workers") or 0) != 0:
+            if data.get("n_workers") != 0:
                 data["n_workers"] = 0
                 cfg_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:  # noqa: BLE001
