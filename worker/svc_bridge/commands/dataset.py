@@ -15,7 +15,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable
 
 from .. import exit_codes
 from ..audio import (
@@ -177,7 +177,7 @@ def _percentile(values: List[float], p: float) -> float:
     return ordered[idx]
 
 
-def qc(root: str) -> Dict[str, Any]:
+def qc(root: str, on_progress: Optional[Callable[[int, int], None]] = None) -> Dict[str, Any]:
     scanned = scan(root)
     base = Path(root)
     per_file: List[Dict[str, Any]] = []
@@ -186,7 +186,10 @@ def qc(root: str) -> Dict[str, Any]:
     weighted_clip = 0.0
     rms_values: List[float] = []
 
-    for f in scanned["files"]:
+    total_files = len(scanned["files"])
+    for index, f in enumerate(scanned["files"], start=1):
+        if on_progress is not None:
+            on_progress(index, total_files)
         if f.get("status") == "corrupt":
             continue
         path = base / f["relPath"]
@@ -456,12 +459,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--max-seconds", type=float, default=15.0)
     parser.add_argument("--min-interval-ms", type=int, default=300)
     parser.add_argument("--sample-rate", type=int, default=TARGET_SR)
+    parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
     args = parser.parse_args(argv)
 
     if args.action == "scan":
         result = scan(args.root)
     elif args.action == "qc":
-        result = qc(args.root)
+        if getattr(args, "events", False):
+            from .. import rpc
+
+            result = qc(args.root, on_progress=lambda step, total: rpc.emit_progress("qc", step, total))
+            rpc.emit("result", data=result)
+        else:
+            result = qc(args.root)
     elif args.action == "slice":
         result = slice_tree(args.root, args.min_seconds, args.max_seconds, args.min_interval_ms)
     elif args.action == "finalize":
@@ -485,8 +495,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         write_report(result, args.out)
     import sys
 
-    sys.stdout.buffer.write(json.dumps(result, ensure_ascii=False).encode("utf-8") + b"\n")
-    sys.stdout.buffer.flush()
+    # --events 模式下结果已通过 rpc.emit("result") 输出，这里不再打印裸 JSON
+    if not getattr(args, "events", False):
+        sys.stdout.buffer.write(json.dumps(result, ensure_ascii=False).encode("utf-8") + b"\n")
+        sys.stdout.buffer.flush()
     passed = True
     if isinstance(result, dict):
         assertions = result.get("assertions")

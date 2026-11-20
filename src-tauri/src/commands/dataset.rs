@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::core::ids::{dataset_id, event_id};
 use crate::core::models::DatasetSummary;
@@ -131,7 +131,11 @@ pub async fn dataset_scan(
 
 /// QC 一次 = 数据集的一个版本；文件清单、报告、断言结果都落库。
 #[tauri::command]
-pub async fn dataset_qc(state: State<'_, AppPaths>, project_id: String) -> AppResult<QcReport> {
+pub fn dataset_qc(
+    app: tauri::AppHandle,
+    state: State<'_, AppPaths>,
+    project_id: String,
+) -> AppResult<()> {
     let python = crate::commands::settings::python_for_state(&state)?;
     let root = project_root(&state, &project_id)?;
     let dir = dataset_raw(&root);
@@ -144,25 +148,103 @@ pub async fn dataset_qc(state: State<'_, AppPaths>, project_id: String) -> AppRe
     }
 
     let report_path = root.join("reports").join("qc_report.json");
-    // QC 要逐个文件读音频算指标：按文件数给预算，避免大目录被固定 120s 掐断
-    let files = count_audio_files(&dir);
-    let budget = std::time::Duration::from_secs(60 + 2 * files.max(1) as u64);
-    let value = crate::core::worker_cli::run_json_with(
-        &python,
-        &crate::core::runtime::resolve_worker_dir(),
-        &[
-            "dataset",
-            "qc",
-            "--root",
-            &dir.to_string_lossy(),
-            "--out",
-            &report_path.to_string_lossy(),
-        ],
-        budget,
-    )
-    .await?;
+    let db = state.db.clone();
+    tauri::async_runtime::spawn(async move {
+        let handle = app.clone();
+        if let Err(err) = qc_task(handle.clone(), db, python, dir, report_path, project_id).await {
+            handle
+                .emit(
+                    "dataset-progress",
+                    serde_json::json!({
+                        "kind": "qc",
+                        "stage": "qc-error",
+                        "code": err.code,
+                        "message": err.message,
+                        "cause": err.cause,
+                    }),
+                )
+                .ok();
+        }
+    });
+    Ok(())
+}
 
-    let report: QcReport = serde_json::from_value(value).map_err(|e| {
+/// 真正的 QC：跑 worker（--events 流式进度）→ 落库 → 返回报告。
+async fn qc_task(
+    app: tauri::AppHandle,
+    db: std::sync::Arc<crate::infra::db::Db>,
+    python: std::path::PathBuf,
+    dir: std::path::PathBuf,
+    report_path: std::path::PathBuf,
+    project_id: String,
+) -> AppResult<()> {
+    let dir_text = dir.to_string_lossy().to_string();
+    let report_text = report_path.to_string_lossy().to_string();
+
+    let mut cmd = tokio::process::Command::new(&python);
+    crate::core::proc::hide_console_async(&mut cmd);
+    cmd.args(["-m", "svc_bridge"]);
+    cmd.args([
+        "dataset",
+        "qc",
+        "--root",
+        dir_text.as_str(),
+        "--out",
+        report_text.as_str(),
+        "--events",
+    ]);
+    for (k, v) in crate::core::runtime::worker_env(&crate::core::runtime::resolve_worker_dir()) {
+        cmd.env(k, v);
+    }
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        Box::new(AppError::new(
+            "SVC-1001",
+            "无法启动 worker",
+            format!("{}: {e}", python.display()),
+        ))
+    })?;
+
+    let mut report_value: Option<serde_json::Value> = None;
+    if let Some(stdout) = child.stdout.take() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+                continue;
+            };
+            match value.get("kind").and_then(|k| k.as_str()) {
+                Some("progress") => {
+                    app.emit(
+                        "dataset-progress",
+                        serde_json::json!({
+                            "kind": "qc",
+                            "stage": "qc",
+                            "step": value.get("step").cloned().unwrap_or_default(),
+                            "total": value.get("total").cloned().unwrap_or_default(),
+                        }),
+                    )
+                    .ok();
+                }
+                Some("result") => {
+                    report_value = value.get("data").cloned();
+                }
+                _ => {}
+            }
+        }
+    }
+    let status = child.wait().await.ok();
+    if report_value.is_none() {
+        return Err(Box::new(AppError::new(
+            "SVC-3001",
+            "质检没有返回结果",
+            format!("worker 退出码 {:?}", status.and_then(|s| s.code())),
+        )));
+    }
+
+    let report: QcReport = serde_json::from_value(report_value.unwrap()).map_err(|e| {
         Box::new(AppError::new(
             "SVC-1001",
             "QC 报告结构不符合预期",
@@ -172,10 +254,13 @@ pub async fn dataset_qc(state: State<'_, AppPaths>, project_id: String) -> AppRe
 
     let ds_id = dataset_id();
     let now = now_iso();
-    let summary: DatasetSummary = state.db.with(|c| {
-        let ds = datasets::insert(c, &ds_id, &project_id, &dir.to_string_lossy(), &now)?;
-        for file in &report.files {
-            let abs = dir.join(&file.rel_path);
+    let report_for_db = report.clone();
+    let dir_for_db = dir.clone();
+    let report_path_for_db = report_path.clone();
+    let summary: DatasetSummary = db.with(|c| {
+        let ds = datasets::insert(c, &ds_id, &project_id, &dir_for_db.to_string_lossy(), &now)?;
+        for file in &report_for_db.files {
+            let abs = dir_for_db.join(&file.rel_path);
             let sha = if abs.is_file() {
                 sha256_file(&abs).ok()
             } else {
@@ -194,14 +279,14 @@ pub async fn dataset_qc(state: State<'_, AppPaths>, project_id: String) -> AppRe
                 },
             )?;
         }
-        let fingerprint = fingerprint_of(&report.files);
+        let fingerprint = fingerprint_of(&report_for_db.files);
         datasets::finalize(
             c,
             &ds_id,
-            report.summary.file_count,
-            report.summary.total_seconds,
+            report_for_db.summary.file_count,
+            report_for_db.summary.total_seconds,
             &fingerprint,
-            report.summary.low_data,
+            report_for_db.summary.low_data,
         )?;
         c.execute(
             "INSERT INTO qc_reports (id,dataset_id,json_path,passed,blocking_count,warning_count,generated_at)
@@ -209,23 +294,27 @@ pub async fn dataset_qc(state: State<'_, AppPaths>, project_id: String) -> AppRe
             rusqlite::params![
                 event_id(),
                 ds_id,
-                report_path.to_string_lossy(),
-                i64::from(report.summary.passed),
-                report.summary.blocking,
-                report.summary.warnings,
+                report_path_for_db.to_string_lossy(),
+                i64::from(report_for_db.summary.passed),
+                report_for_db.summary.blocking,
+                report_for_db.summary.warnings,
                 now
             ],
         )?;
         Ok(ds)
     })?;
 
-    // 报告文件再写一次规范化 JSON（保证磁盘与返回值一致）。
     let serialized = serde_json::to_vec_pretty(&report)
         .map_err(|e| Box::new(AppError::new("SVC-7001", "报告序列化失败", e.to_string())))?;
     atomic_write(&report_path, &serialized)?;
 
     tracing::info!(dataset = %summary.id, files = summary.file_count, "qc done");
-    Ok(report)
+    app.emit(
+        "dataset-progress",
+        serde_json::json!({ "kind": "qc", "stage": "qc-done", "report": report }),
+    )
+    .ok();
+    Ok(())
 }
 
 #[tauri::command]

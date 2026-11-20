@@ -27,6 +27,7 @@ interface QcReport {
 export function DatasetPage() {
   const project = useActiveProject();
   const [qc, setQc] = useState<QcReport | null>(null);
+  const [qcProgress, setQcProgress] = useState<string | null>(null);
   const [scan, setScan] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,7 @@ export function DatasetPage() {
         return;
       }
       try {
-        const report = await backend.datasetQc(id);
+        const report = await runQc(id);
         if (!cancelled) setQc(report as QcReport);
       } catch {
         // 数据集为空时 QC 会报「还没有可质检的数据集」，这属于正常空态，不弹错误
@@ -70,6 +71,54 @@ export function DatasetPage() {
     // 只在项目变化时重新加载
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
+
+
+  // 启动后台 QC 并等它跑完：进度通过 dataset-progress(kind=qc) 回传
+  async function runQc(projectId: string): Promise<QcReport> {
+    return new Promise<QcReport>((resolve, reject) => {
+      let unlisten: (() => void) | undefined;
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        unlisten?.();
+        fn();
+      };
+      void listen<{
+        kind?: string;
+        stage: string;
+        step?: number;
+        total?: number;
+        message?: string;
+        report?: QcReport;
+        code?: string;
+      }>("dataset-progress", (event) => {
+        const p = event.payload;
+        if (p.kind !== "qc") return;
+        if (p.stage === "qc") {
+          if (p.total && p.total > 0) {
+            setQcProgress(`质检中 ${p.step ?? 0}/${p.total}`);
+          } else if (p.message) {
+            setQcProgress(p.message);
+          }
+        } else if (p.stage === "qc-done" && p.report) {
+          setQcProgress(null);
+          finish(() => resolve(p.report as QcReport));
+        } else if (p.stage === "qc-error") {
+          setQcProgress(null);
+          finish(() =>
+            reject(new Error(`[${p.code ?? "SVC-3001"}] ${p.message ?? "质检失败"}`)),
+          );
+        }
+      }).then((fn) => {
+        unlisten = fn;
+      });
+      void backend.datasetQc(projectId).catch((e: unknown) => {
+        setQcProgress(null);
+        finish(() => reject(e instanceof Error ? e : new Error(String(e))));
+      });
+    });
+  }
 
   // 启动后台准备任务并等待 dataset-progress 事件返回结果
   async function waitForPrepare(projectId: string) {
@@ -122,7 +171,7 @@ export function DatasetPage() {
       }
       const scanned = await backend.datasetScan(project.id);
       setScan(scanned);
-      setQc(await backend.datasetQc(project.id));
+      setQc(await runQc(project.id));
     } catch (e) {
       setError(toErrorText(e));
     } finally {
@@ -167,7 +216,7 @@ export function DatasetPage() {
             <Button disabled={!!busy} onClick={() => void run("scan", () => backend.datasetScan(project.id), setScan)}>
               {busy === "scan" ? "扫描中…" : "结构扫描"}
             </Button>
-            <Button variant="primary" disabled={!!busy} onClick={() => void run("qc", () => backend.datasetQc(project.id), setQc)}>
+            <Button variant="primary" disabled={!!busy} onClick={() => void run("qc", () => runQc(project.id), setQc)}>
               {busy === "qc" ? "质检中…" : "运行 QC"}
             </Button>
           </div>
@@ -191,6 +240,13 @@ export function DatasetPage() {
         />
         自动分离人声（去伴奏 / 背景音，Demucs；约 1 分钟音频 10 秒）
       </label>
+
+      {qcProgress && (
+        <p className="mt-2 flex items-center gap-2 text-[12px] text-muted">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          {qcProgress}
+        </p>
+      )}
 
       {importNote && (
         <p className="mt-2 text-[12px] text-ok">

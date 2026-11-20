@@ -59,6 +59,7 @@ def _add_dataset(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-seconds", type=float, default=15.0)
     parser.add_argument("--min-interval-ms", type=int, default=300)
     parser.add_argument("--sample-rate", type=int, default=44100)
+    parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
 
 
 def _add_doctor(parser: argparse.ArgumentParser) -> None:
@@ -178,6 +179,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             str(args.min_interval_ms),
             "--sample-rate",
             str(args.sample_rate),
+            *(["--events"] if getattr(args, "events", False) else []),
         ]
         if args.out:
             dataset_argv.extend(["--out", str(args.out)])
