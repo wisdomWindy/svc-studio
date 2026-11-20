@@ -33,6 +33,7 @@
     "sampling_rate": 44100,
     "filter_length": 2048,
     "hop_length": 512,
+    "n_workers": 0,
     "win_length": 2048,
     "n_mel_channels": 80,
     "mel_fmin": 0.0,
