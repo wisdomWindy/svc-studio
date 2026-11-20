@@ -70,6 +70,11 @@ pub async fn run_json_with(
 }
 
 pub async fn run_cli(args: &[&str]) -> AppResult<(Value, Option<i32>)> {
+    run_cli_with(args, CLI_TIMEOUT).await
+}
+
+/// 长任务（预处理/切片）用：按数据量给足时间，避免固定 120s 被超时误杀。
+pub async fn run_cli_with(args: &[&str], timeout: Duration) -> AppResult<(Value, Option<i32>)> {
     let python = resolve_python();
     let worker = resolve_worker_dir();
     let mut cmd = Command::new(&python);
@@ -79,9 +84,15 @@ pub async fn run_cli(args: &[&str]) -> AppResult<(Value, Option<i32>)> {
     for (k, v) in worker_env(&worker) {
         cmd.env(k, v);
     }
-    let output = tokio::time::timeout(CLI_TIMEOUT, cmd.output())
+    let output = tokio::time::timeout(timeout, cmd.output())
         .await
-        .map_err(|_| Box::new(AppError::new("SVC-1001", "worker 命令超时", args.join(" "))))?
+        .map_err(|_| {
+            Box::new(AppError::new(
+                "SVC-1001",
+                "worker 命令超时",
+                format!("已等待 {}s：{}", timeout.as_secs(), args.join(" ")),
+            ))
+        })?
         .map_err(|e| {
             Box::new(AppError::new(
                 "SVC-1001",
