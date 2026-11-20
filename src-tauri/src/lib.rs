@@ -230,6 +230,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            // 显式给窗口设置图标：不依赖 exe 资源与系统图标缓存，任务栏/标题栏一定是新图标
+            if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
+                if let Ok(img) = image::load_from_memory(include_bytes!("../icons/128x128@2x.png"))
+                {
+                    let rgba = img.to_rgba8();
+                    let (w, h) = rgba.dimensions();
+                    let icon = tauri::image::Image::new_owned(rgba.into_raw(), w, h);
+                    let _ = window.set_icon(icon);
+                }
+            }
             let state = init_state().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             tracing::info!(
                 db = %state.db.path.display(),
