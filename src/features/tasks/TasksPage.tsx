@@ -219,7 +219,7 @@ export function TasksPage() {
           </div>
           <div className="max-h-[420px] overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
             {events.length === 0 && <p className="text-muted">暂无事件</p>}
-            {events.map((event) => (
+            {[...events].sort((a, b) => b.seq - a.seq).map((event) => (
               <div key={event.seq} className="flex gap-2">
                 <span className="shrink-0 text-muted/70 tabular">{formatClock(event.ts)}</span>
                 <span className={`shrink-0 ${LEVEL_TONE[event.level] ?? "text-ink"}`}>
