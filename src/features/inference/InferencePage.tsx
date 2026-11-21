@@ -11,11 +11,38 @@ import { toErrorText } from "@/lib/errors";
 
 const F0 = ["rmvpe", "fcpe", "crepe", "harvest", "dio", "pm"];
 
+export interface AdvParams {
+  noiseScale: number;
+  clusterInferRatio: number;
+  kStep: number;
+  sliceDb: number;
+  enhancerAdaptiveKey: number;
+  featureRetrievalRate: number;
+  shallowDiffusion: boolean;
+  enhance: boolean;
+  featureRetrieval: boolean;
+}
+
+/** 推理高级参数：默认值来自上游 4.8.1 的推荐档 */
+export const DEFAULT_ADV: AdvParams = {
+  noiseScale: 0.4,
+  clusterInferRatio: 0,
+  kStep: 100,
+  sliceDb: -40,
+  enhancerAdaptiveKey: 0,
+  featureRetrievalRate: 0.75,
+  shallowDiffusion: false,
+  enhance: false,
+  featureRetrieval: false,
+};
+
 export function InferencePage() {
   const project = useActiveProject();
   const { models, setModels } = useAppStore();
   const [modelId, setModelId] = useState<string>("");
   const [inputs, setInputs] = useState<string[]>([]);
+  const [adv, setAdv] = useState<AdvParams>(DEFAULT_ADV);
+  const [advOpen, setAdvOpen] = useState(false);
   const [trans, setTrans] = useState(0);
   const [f0, setF0] = useState("rmvpe");
   const [clip, setClip] = useState(0);
@@ -61,6 +88,38 @@ export function InferencePage() {
     };
   }, [project?.id, message]);
 
+
+  // 高级参数按项目持久化（存到 settings 表，键：infer.advanced.<projectId>）
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    const key = `infer.advanced.${project.id}`;
+    void backend
+      .getSettings()
+      .then((all) => {
+        if (cancelled) return;
+        const raw = (all as Record<string, unknown>)[key];
+        if (typeof raw === "string") {
+          try {
+            setAdv({ ...DEFAULT_ADV, ...(JSON.parse(raw) as Partial<AdvParams>) });
+          } catch {
+            /* 忽略损坏的旧值 */
+          }
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id]);
+
+  function updateAdv(patch: Partial<AdvParams>) {
+    if (!project) return;
+    const next = { ...adv, ...patch };
+    setAdv(next);
+    void backend.setSetting(`infer.advanced.${project.id}`, JSON.stringify(next)).catch(() => undefined);
+  }
+
   async function pickInputs() {
     try {
       const picked = await open({
@@ -88,6 +147,15 @@ export function InferencePage() {
         autoPredictF0: false,
         wavFormat: "flac",
         separateVocals,
+        noiseScale: adv.noiseScale,
+        clusterInferRatio: adv.clusterInferRatio,
+        kStep: adv.kStep,
+        sliceDb: adv.sliceDb,
+        enhancerAdaptiveKey: adv.enhancerAdaptiveKey,
+        featureRetrievalRate: adv.featureRetrievalRate,
+        shallowDiffusion: adv.shallowDiffusion,
+        enhance: adv.enhance,
+        featureRetrieval: adv.featureRetrieval,
       };
       const job = await backend.inferStart(project.id, modelId, inputs, params, null, "batch");
       setMessage(`推理已提交：${job}`);
@@ -170,6 +238,108 @@ export function InferencePage() {
               </ul>
             )}
           </div>
+
+          <details
+            className="mb-3 rounded-lg border border-line bg-surface"
+            open={advOpen}
+            onToggle={(e) => setAdvOpen((e.currentTarget as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer select-none px-3 py-2 text-[13px] font-medium">
+              高级参数
+              <span className="ml-2 text-[11px] font-normal text-muted">
+                噪声 {adv.noiseScale} · 聚类 {adv.clusterInferRatio} · 浅扩散{adv.shallowDiffusion ? "开" : "关"}
+              </span>
+            </summary>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-line px-3 py-3 text-[12px]">
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-muted">噪声强度</span>
+              <input
+                type="number"
+                min={0.1}
+                max={1}
+                step={0.05}
+                value={adv.noiseScale}
+                onChange={(e) => updateAdv({ noiseScale: Number(e.target.value) })}
+                className="w-20 rounded border border-line bg-raised px-1.5 py-0.5 text-right tabular"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-muted">聚类比例</span>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={adv.clusterInferRatio}
+                onChange={(e) => updateAdv({ clusterInferRatio: Number(e.target.value) })}
+                className="w-20 rounded border border-line bg-raised px-1.5 py-0.5 text-right tabular"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-muted">特征检索比例</span>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={adv.featureRetrievalRate}
+                onChange={(e) => updateAdv({ featureRetrievalRate: Number(e.target.value) })}
+                className="w-20 rounded border border-line bg-raised px-1.5 py-0.5 text-right tabular"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-muted">浅扩散步数</span>
+              <input
+                type="number"
+                min={100}
+                max={1000}
+                step={50}
+                value={adv.kStep}
+                onChange={(e) => updateAdv({ kStep: Number(e.target.value) })}
+                className="w-20 rounded border border-line bg-raised px-1.5 py-0.5 text-right tabular"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-muted">切片阈值 dB</span>
+              <input
+                type="number"
+                min={-60}
+                max={-10}
+                step={5}
+                value={adv.sliceDb}
+                onChange={(e) => updateAdv({ sliceDb: Number(e.target.value) })}
+                className="w-20 rounded border border-line bg-raised px-1.5 py-0.5 text-right tabular"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-muted">增强变调</span>
+              <input
+                type="number"
+                min={-12}
+                max={12}
+                step={1}
+                value={adv.enhancerAdaptiveKey}
+                onChange={(e) => updateAdv({ enhancerAdaptiveKey: Number(e.target.value) })}
+                className="w-20 rounded border border-line bg-raised px-1.5 py-0.5 text-right tabular"
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={adv.shallowDiffusion} onChange={(e) => updateAdv({ shallowDiffusion: e.target.checked })} />
+              启用浅扩散（需先训练 diffusion）
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={adv.enhance} onChange={(e) => updateAdv({ enhance: e.target.checked })} />
+              NSF 声码器增强
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={adv.featureRetrieval} onChange={(e) => updateAdv({ featureRetrieval: e.target.checked })} />
+              特征检索（需先训练索引）
+            </label>
+              <p className="col-span-2 text-[11px] text-muted">
+                电音重就降噪声；不像本人就加聚类 0.1–0.3；长音发抖开特征检索；尾音断把切片阈值调到 -50。
+              </p>
+            </div>
+          </details>
 
           <div className="overflow-hidden rounded-lg border border-line">
             <div className="border-b border-line bg-raised px-3 py-2 text-[12px] text-muted">历史批次</div>
