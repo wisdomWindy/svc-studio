@@ -132,10 +132,35 @@ pub fn data_root() -> AppResult<PathBuf> {
     }
 
     let install_dir = exe_dir;
-    Ok(crate::infra::dataroot::pick_data_root_with(
+    let picked = crate::infra::dataroot::pick_data_root_with(
         env_value.as_deref(),
         pointer.as_deref(),
         &PathBuf::from(home),
         install_dir.as_deref(),
-    ))
+    );
+
+    // 一次性迁移：老版本把数据放在安装目录里（卸载会整个删掉）。
+    // 若安装目录内还留着 data/，而新的「同级目录」还不存在，直接搬过去（同盘改名，瞬间完成）。
+    if let Some(install) = install_dir.as_deref() {
+        let legacy = install.join("data");
+        let target_missing = !picked.exists()
+            || std::fs::read_dir(&picked)
+                .map(|mut it| it.next().is_none())
+                .unwrap_or(true);
+        if legacy.is_dir() && target_missing && picked != legacy {
+            if let Some(parent) = picked.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::rename(&legacy, &picked) {
+                Ok(()) => tracing::info!(
+                    from = %legacy.display(),
+                    to = %picked.display(),
+                    "已把数据目录迁出安装目录（避免卸载误删）"
+                ),
+                Err(e) => tracing::warn!("数据目录迁移失败：{e}"),
+            }
+        }
+    }
+
+    Ok(picked)
 }
