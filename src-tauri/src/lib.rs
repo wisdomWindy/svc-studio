@@ -228,6 +228,15 @@ pub fn svc_step(m: &str) {
 
 pub fn run() {
     svc_step("enter run");
+    // WebView2 默认把缓存写 %LOCALAPPDATA%；改到安装目录，保证「不往 C 盘写文件」
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let data = dir.join("webview-data");
+            if std::fs::create_dir_all(&data).is_ok() {
+                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &data);
+            }
+        }
+    }
     svc_step("enter run");
 
     // 启动期 panic 也要落盘：GUI 子系统下没有控制台，否则只能看到「闪退」
