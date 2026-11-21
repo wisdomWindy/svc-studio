@@ -139,25 +139,25 @@ pub fn data_root() -> AppResult<PathBuf> {
         install_dir.as_deref(),
     );
 
-    // 一次性迁移：老版本把数据放在安装目录里（卸载会整个删掉）。
-    // 若安装目录内还留着 data/，而新的「同级目录」还不存在，直接搬过去（同盘改名，瞬间完成）。
+    // 上次卸载把 data/ 移到了安装目录同级（<install>-data），重新安装后搬回来。
     if let Some(install) = install_dir.as_deref() {
-        let legacy = install.join("data");
-        let target_missing = !picked.exists()
-            || std::fs::read_dir(&picked)
-                .map(|mut it| it.next().is_none())
-                .unwrap_or(true);
-        if legacy.is_dir() && target_missing && picked != legacy {
-            if let Some(parent) = picked.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            match std::fs::rename(&legacy, &picked) {
-                Ok(()) => tracing::info!(
-                    from = %legacy.display(),
-                    to = %picked.display(),
-                    "已把数据目录迁出安装目录（避免卸载误删）"
-                ),
-                Err(e) => tracing::warn!("数据目录迁移失败：{e}"),
+        let inside = install.join("data");
+        if !inside.exists() {
+            if let (Some(parent), Some(name)) = (install.parent(), install.file_name()) {
+                let mut sibling = std::ffi::OsString::from(name);
+                sibling.push("-data");
+                let outside = parent.join(sibling);
+                if outside.is_dir() {
+                    let _ = std::fs::create_dir_all(install);
+                    match std::fs::rename(&outside, &inside) {
+                        Ok(()) => tracing::info!(
+                            from = %outside.display(),
+                            to = %inside.display(),
+                            "已把卸载时保留的数据搬回安装目录"
+                        ),
+                        Err(e) => tracing::warn!("数据搬回失败：{e}"),
+                    }
+                }
             }
         }
     }

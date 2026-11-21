@@ -32,14 +32,9 @@ pub fn pick_data_root_with(
         }
     }
     if let Some(dir) = install_dir {
-        // 数据目录必须放在安装目录「旁边」，绝不能放里面：
-        // NSIS 卸载会删掉整个安装目录，放里面就会连数据集和模型一起被删。
+        // 用户要求数据放在安装目录内；卸载误删由 NSIS 的 PREUNINSTALL 钩子把 data/ 移出去兜底。
         if crate::core::projects_root::is_writable(dir) {
-            if let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) {
-                let mut sibling = std::ffi::OsString::from(name);
-                sibling.push("-data");
-                return parent.join(sibling);
-            }
+            return dir.to_path_buf();
         }
     }
     home.join("SVCStudio")
@@ -84,12 +79,13 @@ mod tests {
     }
 
     #[test]
-    fn install_dir_maps_to_sibling_not_inside() {
+    fn install_dir_keeps_data_inside() {
         let home = Path::new("C:/Users/u");
         let install = Path::new("D:/program/svcstudio");
-        let picked = pick_data_root_with(None, None, home, Some(install));
-        assert_eq!(picked, PathBuf::from("D:/program/svcstudio-data"));
-        assert!(!picked.starts_with(install), "数据目录不能在安装目录内部");
+        assert_eq!(
+            pick_data_root_with(None, None, home, Some(install)),
+            PathBuf::from("D:/program/svcstudio")
+        );
     }
 
     #[test]
