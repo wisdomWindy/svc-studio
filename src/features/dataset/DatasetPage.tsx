@@ -30,6 +30,7 @@ export function DatasetPage() {
   const [qcProgress, setQcProgress] = useState<string | null>(null);
   const [scan, setScan] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
   const [separateVocals, setSeparateVocals] = useState(true);
@@ -47,6 +48,7 @@ export function DatasetPage() {
     setQc(null);
     setError(null);
     setImportNote(null);
+    setScanning(true);
 
     void (async () => {
       try {
@@ -62,6 +64,8 @@ export function DatasetPage() {
         if (!cancelled) setQc(report as QcReport);
       } catch {
         // 数据集为空时 QC 会报「还没有可质检的数据集」，这属于正常空态，不弹错误
+      } finally {
+        if (!cancelled) setScanning(false);
       }
     })();
 
@@ -248,6 +252,13 @@ export function DatasetPage() {
         </p>
       )}
 
+      {scanning && (
+        <p className="mt-2 flex items-center gap-2 text-[12px] text-muted">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          正在扫描数据集并计算 QC 指标（文件多时需要一点时间）…
+        </p>
+      )}
+
       {importNote && (
         <p className="mt-2 text-[12px] text-ok">
           {importNote}
@@ -257,10 +268,10 @@ export function DatasetPage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          ["总时长", total ? formatDuration(total) : "—"],
-          ["文件数", qc?.summary?.fileCount ?? "—"],
-          ["静音比", metrics?.silenceRatio != null ? `${(metrics.silenceRatio * 100).toFixed(1)}%` : "—"],
-          ["削波比", metrics?.clippingRatio != null ? `${(metrics.clippingRatio * 100).toFixed(3)}%` : "—"],
+          ["总时长", scanning ? "扫描中…" : total ? formatDuration(total) : "—"],
+          ["文件数", scanning ? "扫描中…" : (qc?.summary?.fileCount ?? "—")],
+          ["静音比", scanning ? "…" : metrics?.silenceRatio != null ? `${(metrics.silenceRatio * 100).toFixed(1)}%` : "—"],
+          ["削波比", scanning ? "…" : metrics?.clippingRatio != null ? `${(metrics.clippingRatio * 100).toFixed(3)}%` : "—"],
         ].map(([label, value]) => (
           <div key={label} className="rounded-lg border border-line bg-surface p-3">
             <div className="text-[11px] text-muted">{label}</div>
