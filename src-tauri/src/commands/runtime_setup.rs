@@ -136,7 +136,8 @@ mod tests {
 
     #[test]
     fn pack_candidates_only_match_runtime_zips() {
-        let dir = std::env::temp_dir().join(format!("svcpack-{}", uuid::Uuid::now_v7().simple()));
+        let dir = crate::infra::dataroot::tmp_dir()
+            .join(format!("svcpack-{}", uuid::Uuid::now_v7().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("runtime-0.1.0.zip"), b"x").unwrap();
         std::fs::write(dir.join("other.zip"), b"x").unwrap();

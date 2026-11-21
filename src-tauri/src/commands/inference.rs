@@ -272,7 +272,8 @@ mod tests {
             eprintln!("skip: worker 源码不在预期位置");
             return;
         }
-        let dir = std::env::temp_dir().join(format!("svccheck-{}", uuid::Uuid::now_v7().simple()));
+        let dir = crate::infra::dataroot::tmp_dir()
+            .join(format!("svccheck-{}", uuid::Uuid::now_v7().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let weight = dir.join("G_1.pth");
         let config = dir.join("config.json");

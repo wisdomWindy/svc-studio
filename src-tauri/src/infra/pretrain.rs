@@ -92,8 +92,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> std::path::PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("svcpre-{name}-{}", uuid::Uuid::now_v7().simple()));
+        let dir = crate::infra::dataroot::tmp_dir()
+            .join(format!("svcpre-{name}-{}", uuid::Uuid::now_v7().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

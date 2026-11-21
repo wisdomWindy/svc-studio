@@ -40,7 +40,28 @@ pub fn pick_data_root_with(
     home.join("SVCStudio")
 }
 
+/// 指针文件只放安装目录旁（用户要求：任何文件都不写 C 盘）。
+/// 旧版本写在 %LOCALAPPDATA%，这里仅用于「只读迁移」，不再写回。
+/// 应用内所有临时文件都落在数据根下的 tmp/（用户要求：不写 C 盘）。
+pub fn tmp_dir() -> PathBuf {
+    if let Ok(root) = crate::error::data_root() {
+        let dir = root.join("tmp");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            return dir;
+        }
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("tmp")))
+        .unwrap_or_else(|| PathBuf::from("tmp"))
+}
+
 pub fn pointer_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.parent()?.join("data-root.txt"))
+}
+
+fn legacy_pointer_path() -> Option<PathBuf> {
     std::env::var("LOCALAPPDATA")
         .ok()
         .filter(|v| !v.trim().is_empty())
@@ -48,7 +69,9 @@ pub fn pointer_path() -> Option<PathBuf> {
 }
 
 pub fn read_pointer() -> Option<String> {
-    let path = pointer_path()?;
+    let path = pointer_path()
+        .filter(|p| p.is_file())
+        .or_else(legacy_pointer_path)?;
     let text = std::fs::read_to_string(path).ok()?;
     // 指针文件可能带 UTF-8 BOM 或行尾换行，直接当路径用会报 os error 123
     let cleaned = text.trim_start_matches('\u{feff}').trim().to_string();

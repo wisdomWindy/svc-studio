@@ -164,7 +164,7 @@ fn make_log_writer() -> LogFile {
 
     let dir = crate::error::data_root()
         .map(|root| root.join("logs"))
-        .unwrap_or_else(|_| std::env::temp_dir().join("svcstudio-logs"));
+        .unwrap_or_else(|_| crate::infra::dataroot::tmp_dir().join("svcstudio-logs"));
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("app.log");
     let file = std::fs::OpenOptions::new()
@@ -174,7 +174,10 @@ fn make_log_writer() -> LogFile {
         .or_else(|_| std::fs::File::create(&path))
         .unwrap_or_else(|_| {
             // 最后兜底：临时文件，至少不 panic
-            let tmp = std::env::temp_dir().join("svcstudio-app.log");
+            let tmp = std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("logs").join("app-boot.log")))
+                .unwrap_or_else(|| std::path::PathBuf::from("app-boot.log"));
             let _ = std::fs::File::create(&tmp);
             std::fs::OpenOptions::new()
                 .create(true)
@@ -191,7 +194,7 @@ fn make_log_writer() -> LogFile {
 fn install_panic_hook() {
     let dir = crate::error::data_root()
         .map(|root| root.join("logs"))
-        .unwrap_or_else(|_| std::env::temp_dir());
+        .unwrap_or_else(|_| crate::infra::dataroot::tmp_dir());
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("app.log");
     std::panic::set_hook(Box::new(move |info| {
@@ -214,7 +217,12 @@ pub fn svc_step(m: &str) {
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(std::env::temp_dir().join("svcstudio-step.log"))
+        .open(
+            std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("svcstudio-step.log")))
+                .unwrap_or_else(|| std::path::PathBuf::from("svcstudio-step.log")),
+        )
         .and_then(|mut f| std::io::Write::write_all(&mut f, format!("{m}\n").as_bytes()));
 }
 
@@ -224,7 +232,10 @@ pub fn run() {
 
     // 启动期 panic 也要落盘：GUI 子系统下没有控制台，否则只能看到「闪退」
     std::panic::set_hook(Box::new(|info| {
-        let path = std::env::temp_dir().join("svcstudio-panic.log");
+        let path = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.join("svcstudio-panic.log")))
+            .unwrap_or_else(|| std::path::PathBuf::from("svcstudio-panic.log"));
         let _ = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

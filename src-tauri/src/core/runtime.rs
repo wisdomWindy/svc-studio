@@ -196,8 +196,9 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("svcrt-{name}-{}", uuid::Uuid::now_v7().simple()));
+        let dir = std::env::temp_dir()
+            .join(format!("svc-rt-{}", uuid::Uuid::now_v7().simple()))
+            .join(format!("svcrt-{name}-{}", uuid::Uuid::now_v7().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -258,9 +259,8 @@ mod env_tests {
 
     #[test]
     fn worker_env_does_not_inherit_host_pythonpath() {
-        std::env::set_var("PYTHONPATH", r"C:\global\site-packages");
+        // 不能改进程环境变量：测试是多线程的，新版 Rust 下 set_var 会 panic
         let env = worker_env(std::path::Path::new(r"C:\app\worker"));
-        std::env::remove_var("PYTHONPATH");
 
         let value = env
             .iter()
