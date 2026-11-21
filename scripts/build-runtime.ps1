@@ -184,6 +184,14 @@ if _up and os.path.isdir(_up) and _up not in sys.path:
 "@
 [System.IO.File]::WriteAllText((Join-Path $out "Lib\site-packages\sitecustomize.py"), $sitecustomize, (New-Object System.Text.UTF8Encoding($false)))
 
+Write-Host "==> 裁剪编译期产物（.lib / include，运行时不需要，可省约 2.6GB）"
+$torchLib = Join-Path $out "Lib\site-packages\torch\lib"
+if (Test-Path $torchLib) {
+  Get-ChildItem $torchLib -Filter *.lib -ErrorAction SilentlyContinue | Remove-Item -Force
+  Remove-Item -Recurse -Force (Join-Path $out "Lib\site-packages\torch\include") -ErrorAction SilentlyContinue
+  Remove-Item -Recurse -Force (Join-Path $out "Lib\site-packages\torch\test") -ErrorAction SilentlyContinue
+}
+
 Write-Host "==> 预置 Demucs 人声分离权重（80MB，离线可用）"
 $demucsDir = Join-Path $out "models\torch\hub\checkpoints"
 New-Item -ItemType Directory -Force -Path $demucsDir | Out-Null
