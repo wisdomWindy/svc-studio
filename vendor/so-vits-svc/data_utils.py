@@ -83,8 +83,17 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
             volume = None
 
         lmin = min(c.size(-1), spec.size(-1))
-        assert abs(c.size(-1) - spec.size(-1)) < 3, (c.size(-1), spec.size(-1), f0.shape, filename)
-        assert abs(audio_norm.shape[1]-lmin * self.hop_length) < 3 * self.hop_length
+        # 上游在这里硬断言对齐关系；切片过短/被 trim 掉时会直接抛 AssertionError 让训练崩掉。
+        # 改为容错对齐：长度不足补零，长度差过大则截断，并打印告警便于定位。
+        if abs(c.size(-1) - spec.size(-1)) >= 3:
+            print(f"[warn] 特征长度不一致，按 {lmin} 对齐：{filename}", flush=True)
+        want = lmin * self.hop_length
+        have = audio_norm.shape[1]
+        if have < want:
+            audio_norm = torch.nn.functional.pad(audio_norm, (0, want - have))
+        elif have - want >= 3 * self.hop_length:
+            audio_norm = audio_norm[:, :want]
+            print(f"[warn] 音频与特征长度差过大，已截断：{filename}", flush=True)
         spec, c, f0, uv = spec[:, :lmin], c[:, :lmin], f0[:lmin], uv[:lmin]
         audio_norm = audio_norm[:, :lmin * self.hop_length]
         if volume is not None:
