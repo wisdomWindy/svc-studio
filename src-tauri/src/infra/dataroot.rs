@@ -49,7 +49,14 @@ pub fn pointer_path() -> Option<PathBuf> {
 
 pub fn read_pointer() -> Option<String> {
     let path = pointer_path()?;
-    std::fs::read_to_string(path).ok()
+    let text = std::fs::read_to_string(path).ok()?;
+    // 指针文件可能带 UTF-8 BOM 或行尾换行，直接当路径用会报 os error 123
+    let cleaned = text.trim_start_matches('\u{feff}').trim().to_string();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
 }
 
 #[cfg(test)]

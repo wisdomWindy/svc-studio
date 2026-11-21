@@ -131,6 +131,14 @@ pub fn data_root() -> AppResult<PathBuf> {
         }
     }
 
+    // 安装目录内已有可用的 data/（含 studio.db）时，直接用它，避免路径推断跑偏
+    if let Some(dir) = exe_dir.as_deref() {
+        let candidate = dir.join("data");
+        if candidate.join("studio.db").is_file() {
+            return Ok(candidate);
+        }
+    }
+
     let install_dir = exe_dir;
     let picked = crate::infra::dataroot::pick_data_root_with(
         env_value.as_deref(),

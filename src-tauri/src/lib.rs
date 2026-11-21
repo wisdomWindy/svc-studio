@@ -210,7 +210,28 @@ fn install_panic_hook() {
     }));
 }
 
+pub fn svc_step(m: &str) {
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(std::env::temp_dir().join("svcstudio-step.log"))
+        .and_then(|mut f| std::io::Write::write_all(&mut f, format!("{m}\n").as_bytes()));
+}
+
 pub fn run() {
+    svc_step("enter run");
+    svc_step("enter run");
+
+    // 启动期 panic 也要落盘：GUI 子系统下没有控制台，否则只能看到「闪退」
+    std::panic::set_hook(Box::new(|info| {
+        let path = std::env::temp_dir().join("svcstudio-panic.log");
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, format!("{info}\n").as_bytes()));
+    }));
+
     let log_writer = make_log_writer();
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -240,7 +261,15 @@ pub fn run() {
                     let _ = window.set_icon(icon);
                 }
             }
-            let state = init_state().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            svc_step("before init_state");
+            let state = match init_state() {
+                Ok(s) => s,
+                Err(e) => {
+                    svc_step(&format!("init_state ERR: {e}"));
+                    return Err(e.into());
+                }
+            };
+            svc_step("init_state ok");
             tracing::info!(
                 db = %state.db.path.display(),
                 version = state.db.version,
