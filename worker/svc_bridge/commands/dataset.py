@@ -177,6 +177,26 @@ def _percentile(values: List[float], p: float) -> float:
     return ordered[idx]
 
 
+
+def prune_short(root: str, min_seconds: float = 1.0) -> Dict[str, Any]:
+    """删除过短切片（默认 <1s）：这类切片会让训练对齐断言失败，且对音色学习无益。"""
+    base = Path(root)
+    removed = []
+    for wav in sorted(base.rglob("*.wav")):
+        try:
+            data = read_wav(wav)
+        except Exception:  # noqa: BLE001
+            continue
+        if data.seconds < min_seconds:
+            # 连带删除同名特征文件，避免产物计数不一致
+            for suffix in (".soft.pt", ".f0.npy", ".spec.npy", ".vol.npy", ".mel.npy", ".aug_mel.npy", ".aug_vol.npy"):
+                side = wav.with_name(wav.name + suffix)
+                if side.exists():
+                    side.unlink()
+            wav.unlink()
+            removed.append(str(wav.relative_to(base)))
+    return {"removed": len(removed), "files": removed[:200], "minSeconds": min_seconds}
+
 def qc(root: str, on_progress: Optional[Callable[[int, int], None]] = None) -> Dict[str, Any]:
     scanned = scan(root)
     base = Path(root)
@@ -452,7 +472,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="svc_bridge dataset")
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
@@ -464,6 +484,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.action == "scan":
         result = scan(args.root)
+    elif args.action == "prune-short":
+        result = prune_short(args.root, 1.0)
     elif args.action == "qc":
         if getattr(args, "events", False):
             from .. import rpc

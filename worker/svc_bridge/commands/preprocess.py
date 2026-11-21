@@ -68,6 +68,12 @@ def build_steps(
     up = Path(upstream)
     project_path = Path(project)
     _ensure_project_dirs(project)
+    try:
+        from .dataset import prune_short
+
+        prune_short(str(Path(project) / "dataset" / "44k"), 1.0)
+    except Exception:  # noqa: BLE001
+        pass
 
     resample = [py, str(up / "resample.py"), "--sr2", "44100", "--skip_loudnorm"]
     flist = [py, str(up / "preprocess_flist_config.py"), "--speech_encoder", encoder]
@@ -212,6 +218,12 @@ def run_chain(
 ) -> Dict[str, Any]:
     project_path = Path(project)
     _ensure_project_dirs(project)
+    try:
+        from .dataset import prune_short
+
+        prune_short(str(Path(project) / "dataset" / "44k"), 1.0)
+    except Exception:  # noqa: BLE001
+        pass
     steps = build_steps(project, upstream, encoder, f0, num_processes, use_diff, vol_aug)
     env = {
         "PYTHONPATH": str(Path(upstream)) + os.pathsep + os.environ.get("PYTHONPATH", ""),
