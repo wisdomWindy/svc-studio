@@ -344,6 +344,18 @@ pub(crate) fn infer_start_impl(
         )));
     }
 
+    // 登记的模型文件可能已被 keep_ckpts 滚动删除：先检查，给出可操作的提示
+    if !std::path::Path::new(&model.path).is_file() {
+        return Err(Box::new(AppError::new(
+            "SVC-6004",
+            "模型文件已不存在",
+            format!(
+                "{} 已不在磁盘上（训练时旧 checkpoint 会被滚动清理）。请在训练页把当前 checkpoint 重新登记为模型后再推理。",
+                model.path
+            ),
+        )));
+    }
+
     let project = state
         .db
         .with(|c| crate::core::repo::projects::get(c, &project_id))?

@@ -883,13 +883,31 @@ fn checkpoint_pairs(logs: &std::path::Path) -> Vec<(u64, std::path::PathBuf, std
 }
 
 /// 删除最旧的 checkpoint 组，只保留最新 `keep` 组。返回被删除的步数。
-pub fn prune_old_checkpoints(logs: &std::path::Path, keep: usize) -> Vec<u64> {
+/// 已登记为模型的 checkpoint 永不删除：受保护的步数会被跳过。
+pub fn prune_old_checkpoints_protected(
+    logs: &std::path::Path,
+    keep: usize,
+    protected: &[std::path::PathBuf],
+) -> Vec<u64> {
     let pairs = checkpoint_pairs(logs);
     if pairs.len() <= keep {
         return Vec::new();
     }
+    let protected_steps: std::collections::HashSet<u64> = protected
+        .iter()
+        .filter_map(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_prefix("G_"))
+                .and_then(|n| n.strip_suffix(".pth"))
+                .and_then(|n| n.parse::<u64>().ok())
+        })
+        .collect();
     let mut removed = Vec::new();
     for (step, g, d) in pairs.iter().take(pairs.len() - keep) {
+        if *step == 0 || protected_steps.contains(step) {
+            continue;
+        }
         let _ = std::fs::remove_file(g);
         let _ = std::fs::remove_file(d);
         removed.push(*step);
@@ -923,7 +941,13 @@ fn spawn_disk_watchdog(
                 continue;
             }
             // 空间紧张：只留最新 2 组 + 0 步底模
-            let removed = prune_old_checkpoints(&logs, 2);
+            let protected: Vec<std::path::PathBuf> = db
+                .with(crate::core::repo::models::list)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|m| std::path::PathBuf::from(m.path))
+                .collect();
+            let removed = prune_old_checkpoints_protected(&logs, 2, &protected);
             let now = now_iso();
             let msg = if removed.is_empty() {
                 format!("磁盘余量 {free:.1} GB，没有可清理的旧 checkpoint")
@@ -961,7 +985,7 @@ mod prune_tests {
             std::fs::write(dir.join(format!("D_{step}.pth")), b"x").unwrap();
         }
 
-        let removed = prune_old_checkpoints(&dir, 2);
+        let removed = prune_old_checkpoints_protected(&dir, 2, &[]);
         assert_eq!(removed, vec![1000, 1200]);
         assert!(dir.join("G_0.pth").is_file());
         assert!(dir.join("D_0.pth").is_file());
@@ -987,6 +1011,26 @@ mod archive_tests {
 
         assert!(!logs.join("44k").exists());
         assert!(target.join("G_100.pth").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod protected_prune_tests {
+    #[test]
+    fn registered_checkpoint_survives_prune() {
+        let dir = std::env::temp_dir().join(format!("svc-prot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for step in [0u64, 100, 200, 300] {
+            std::fs::write(dir.join(format!("G_{step}.pth")), b"x").unwrap();
+            std::fs::write(dir.join(format!("D_{step}.pth")), b"x").unwrap();
+        }
+        let protected = vec![dir.join("G_100.pth")];
+        let removed = super::prune_old_checkpoints_protected(&dir, 1, &protected);
+        assert!(!removed.contains(&100), "已登记模型不能被删");
+        assert!(dir.join("G_100.pth").is_file());
+        assert!(removed.contains(&200));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
