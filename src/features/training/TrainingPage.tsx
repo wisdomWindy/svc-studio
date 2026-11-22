@@ -23,6 +23,7 @@ export function TrainingPage() {
   const [gpuBusy, setGpuBusy] = useState(false);
   const [running, setRunning] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [auxBusy, setAuxBusy] = useState<null | "cluster" | "index">(null);
   const [progress, setProgress] = useState<{ step: number | null; total: number | null }>({
     step: null,
     total: null,
@@ -206,6 +207,24 @@ export function TrainingPage() {
     }
   }
 
+
+  // 可选任务：聚类（kmeans）/ 特征检索索引（index），推理页的聚类与特征检索依赖它们
+  async function runAux(kind: "cluster" | "index") {
+    if (!project) return;
+    setAuxBusy(kind);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await backend.trainAux(project.id, kind);
+      const label = kind === "cluster" ? "聚类模型" : "特征检索索引";
+      setMessage(`${label}已生成：${String((result as Record<string, unknown>).path ?? "")}`);
+    } catch (e) {
+      setError(toErrorText(e));
+    } finally {
+      setAuxBusy(null);
+    }
+  }
+
   async function register(checkpoint: CheckpointInfo) {
     if (!project) return;
     try {
@@ -315,6 +334,24 @@ export function TrainingPage() {
             <div className="text-[13px] font-medium text-ink">停止与续训</div>
             <p className="mt-1 leading-relaxed">
               训练没有“暂停”，停止后最多回退到最近一次保存（默认每 800 步）。已有 checkpoint 时按钮变为「继续训练」，会从最新 checkpoint 接着跑；要从零开始需先归档 <code>logs/44k</code>。
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-line bg-surface p-3.5">
+            <div className="text-[13px] font-medium text-ink">可选任务</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              推理页的「聚类比例」与「特征检索」依赖下面两个产物，训练完成后才能生效。
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button size="sm" disabled={!!auxBusy || checkpoints.length === 0} onClick={() => void runAux("cluster")}>
+                {auxBusy === "cluster" ? "训练中…" : "训练聚类模型"}
+              </Button>
+              <Button size="sm" disabled={!!auxBusy || checkpoints.length === 0} onClick={() => void runAux("index")}>
+                {auxBusy === "index" ? "训练中…" : "训练特征检索索引"}
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] text-muted">
+              聚类产出 kmeans_10000.pt，索引产出 feature_and_index.pkl；各需几分钟。
             </p>
           </div>
         </div>
