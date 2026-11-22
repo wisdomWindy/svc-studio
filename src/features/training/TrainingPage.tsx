@@ -23,6 +23,8 @@ export function TrainingPage() {
   const [gpuBusy, setGpuBusy] = useState(false);
   const [running, setRunning] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  // 已发出停止请求、但进程还没退出：这期间继续显示「停止中…」，避免按钮闪回
+  const [stopping, setStopping] = useState(false);
   const [auxBusy, setAuxBusy] = useState<null | "cluster" | "index">(null);
   const [progress, setProgress] = useState<{ step: number | null; total: number | null }>({
     step: null,
@@ -164,6 +166,7 @@ export function TrainingPage() {
             (!j.projectId || j.projectId === project!.id),
         );
         setRunning(Boolean(active));
+        if (!active) setStopping(false);
         setActiveJobId(active?.id ?? null);
         if (active) setJobId(active.id);
       } catch {
@@ -198,11 +201,12 @@ export function TrainingPage() {
   async function stop() {
     const target = activeJobId ?? jobId;
     if (!target) return;
+    setStopping(true);
     try {
       await backend.trainStop(target);
-      setMessage("已请求停止，进度会保留到最近一次 checkpoint");
-    setRunning(false);
+      setMessage("已请求停止，正在等待进程退出（进度保留到最近一次 checkpoint）");
     } catch (e) {
+      setStopping(false);
       setError(toErrorText(e));
     }
   }
@@ -259,8 +263,8 @@ export function TrainingPage() {
         actions={
           <div className="flex gap-2">
             {running ? (
-              <Button variant="primary" disabled={!!busy} onClick={() => void stop()}>
-                停止训练
+              <Button variant="primary" disabled={!!busy || stopping} onClick={() => void stop()}>
+                {stopping ? "停止中…" : "停止训练"}
               </Button>
             ) : (
               <>
