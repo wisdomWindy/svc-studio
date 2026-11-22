@@ -159,6 +159,7 @@ def run_train(
     train_script: Optional[str] = None,
     timeout_seconds: Optional[float] = None,
     retry_oom: bool = True,
+    retry_crash: bool = True,
     _emit_result: bool = True,
 ) -> Dict[str, Any]:
     project_path = Path(project)
@@ -202,11 +203,21 @@ def run_train(
     oom = False
     host_oom = False
     diverged = False
+    saw_traceback = False
+    # 训练日志落盘：驱动重置/崩溃时事件里可能什么都没有，文件是唯一线索
+    log_dir = Path(project) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stderr_log = log_dir / f"train-{time.strftime('%Y%m%d-%H%M%S')}.stderr.log"
+    log_file = open(stderr_log, "a", encoding="utf-8", errors="replace")
     stopped_for_smoke = False
     assert proc.stdout is not None
     try:
         for line in proc.stdout:
             line = line.rstrip("\n")
+            log_file.write(line + "\n")
+            log_file.flush()
+            if "Traceback (most recent call last)" in line:
+                saw_traceback = True
             lowered = line.lower()
             oom_kind = classify_oom(lowered)
             if oom_kind == "cuda":
@@ -275,6 +286,10 @@ def run_train(
                 )
                 break
     finally:
+        try:
+            log_file.close()
+        except Exception:  # noqa: BLE001
+            pass
         if proc.poll() is None:
             proc.terminate()
             try:
@@ -287,6 +302,44 @@ def run_train(
                     pass
 
     exit_code = proc.returncode
+
+    # 驱动重置 / 进程被外部终止：没有 traceback、没有 OOM/发散，且已有 checkpoint
+    # → 自动从最近 checkpoint 续训一次，避免整晚白跑
+    if (
+        retry_crash
+        and exit_code not in (0, None)
+        and not saw_traceback
+        and not oom
+        and not host_oom
+        and not diverged
+        and not stopped_for_smoke
+    ):
+        send(
+            {
+                "kind": "log",
+                "level": "warn",
+                "message": f"训练进程异常退出（exit={exit_code}，无异常栈，常见于显卡驱动重置），已自动续训一次",
+            }
+        )
+        data = run_train(
+            project,
+            upstream,
+            config_path,
+            model_dir,
+            max_steps,
+            kind,
+            emit,
+            train_script,
+            timeout_seconds,
+            retry_oom=False,
+            retry_crash=False,
+            _emit_result=False,
+        )
+        data["retriedAfterCrash"] = True
+        if _emit_result:
+            send({"kind": "result", "data": data})
+        return data
+
     if stopped_for_smoke:
         exit_code = 0
 
