@@ -85,6 +85,19 @@ jobs:
       - name: Stage resources
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-runtime.ps1
+      - name: Fetch separator model
+        shell: pwsh
+        run: |
+          $dir = "src-tauri/resources/separator"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $out = Join-Path $dir "MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          $url = "https://github.com/${{ github.repository }}/releases/download/separator-mdx23c/MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          for ($i = 1; $i -le 6; $i++) {
+            curl.exe -L --retry 5 --retry-all-errors --connect-timeout 20 -o $out $url
+            if ((Test-Path $out) -and ((Get-Item $out).Length -gt 400MB)) { Write-Host "separator model ok"; exit 0 }
+            Write-Host "separator retry $i"; Start-Sleep -Seconds (10 * $i)
+          }
+          throw "separator model download failed"
       - name: Build installer (signed)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -128,6 +141,18 @@ jobs:
           curl -L --fail --retry 3 -o src-tauri/resources/pretrain/rmvpe.pt https://hf-mirror.com/datasets/ylzz1997/rmvpe_pretrain_model/resolve/main/rmvpe.pt
           curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/model https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/model
           curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/config.json https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/config.json
+      - name: Fetch separator model
+        run: |
+          mkdir -p src-tauri/resources/separator
+          out=src-tauri/resources/separator/MDX23C-8KFFT-InstVoc_HQ.ckpt
+          url="https://github.com/${{ github.repository }}/releases/download/separator-mdx23c/MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          for i in 1 2 3 4 5 6; do
+            curl -L --fail --retry 5 --retry-all-errors --connect-timeout 20 -o "$out" "$url" || true
+            size=$(stat -f%z "$out" 2>/dev/null || echo 0)
+            if [ "$size" -gt 400000000 ]; then echo "separator model ok"; exit 0; fi
+            echo "separator retry $i"; sleep $((10 * i))
+          done
+          exit 1
       - name: Build dmg (retry once)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
