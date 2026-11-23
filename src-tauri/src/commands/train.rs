@@ -382,7 +382,24 @@ pub fn train_archive(state: State<'_, AppPaths>, project_id: String) -> AppResul
             format!("可能有训练正在运行或文件被占用：{e}"),
         ))
     })?;
-    tracing::info!(archived = %target.display(), "training artifacts archived");
+    // 已登记模型的路径要跟着走：否则归档后模型库里的模型全部失效
+    let old_prefix = format!("{}{}", current.to_string_lossy(), std::path::MAIN_SEPARATOR);
+    let new_prefix = format!("{}{}", target.to_string_lossy(), std::path::MAIN_SEPARATOR);
+    let old_alt = current.to_string_lossy().to_string();
+    let new_alt = target.to_string_lossy().to_string();
+    state.db.with(|c| {
+        c.execute(
+            "UPDATE models SET path = REPLACE(path, ?1, ?2) WHERE path LIKE ?3",
+            rusqlite::params![old_alt, new_alt, format!("{old_alt}%")],
+        )?;
+        Ok(())
+    })?;
+    tracing::info!(
+        archived = %target.display(),
+        old = %old_prefix,
+        new = %new_prefix,
+        "training artifacts archived; registered model paths rewritten"
+    );
     Ok(target.to_string_lossy().to_string())
 }
 
