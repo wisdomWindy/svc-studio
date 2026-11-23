@@ -222,9 +222,13 @@ pub fn delete_model(state: State<'_, AppPaths>, id: String) -> AppResult<()> {
         )));
     }
 
+    // 只有「正在跑/排队」的任务引用该模型时才拒绝删除；历史记录保留在任务表里即可，
+    // 不应因此永久锁死模型（用户预期：没有运行中的任务就能删）。
     let busy: i64 = state.db.with(|c| {
         Ok(c.query_row(
-            "SELECT count(*) FROM inference_runs WHERE model_id = ?1",
+            "SELECT count(*) FROM jobs
+             WHERE status IN ('running','queued')
+               AND payload_json LIKE '%' || ?1 || '%'",
             [&id],
             |r| r.get(0),
         )?)
@@ -232,8 +236,8 @@ pub fn delete_model(state: State<'_, AppPaths>, id: String) -> AppResult<()> {
     if busy > 0 {
         return Err(Box::new(AppError::new(
             "SVC-7004",
-            "该模型存在推理记录，暂不支持删除",
-            format!("{busy} 条历史批次引用了它（保留追溯性）"),
+            "该模型仍被正在使用",
+            format!("有 {busy} 个排队或运行中的任务引用了它；等任务结束或取消后再删除"),
         )));
     }
 
