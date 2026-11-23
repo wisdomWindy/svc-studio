@@ -199,8 +199,28 @@ export function TrainingPage() {
   }
 
   async function stop() {
-    const target = activeJobId ?? jobId;
-    if (!target) return;
+    // 目标要实时确认：activeJobId/jobId 可能还没被轮询填上，静默 return 会表现为「点了没反应」
+    let target = activeJobId ?? jobId;
+    if (!target) {
+      try {
+        const jobs = await backend.listJobs(50);
+        const active = jobs.find(
+          (j) =>
+            j.type.startsWith("train_") &&
+            (j.status === "running" || j.status === "queued") &&
+            (!project || !j.projectId || j.projectId === project.id),
+        );
+        target = active?.id ?? null;
+      } catch {
+        /* 忽略，下面统一提示 */
+      }
+    }
+    if (!target) {
+      setRunning(false);
+      setStopping(false);
+      setMessage("当前没有正在运行的训练任务");
+      return;
+    }
     setStopping(true);
     try {
       await backend.trainStop(target);
