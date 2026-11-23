@@ -82,6 +82,20 @@ jobs:
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
+      - name: Fetch separator model
+        shell: pwsh
+        run: |
+          $dir = "src-tauri/resources/separator"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $out = Join-Path $dir "MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          $url = "https://github.com/${{ github.repository }}/releases/download/separator-mdx23c/MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          for ($i = 1; $i -le 5; $i++) {
+            curl.exe -L --retry 5 --retry-all-errors --connect-timeout 20 -o $out $url
+            if ((Test-Path $out) -and ((Get-Item $out).Length -gt 400MB)) { Write-Host "separator model ok"; break }
+            Write-Host "separator retry $i"; Start-Sleep -Seconds (10 * $i)
+          }
+          if (-not (Test-Path $out) -or ((Get-Item $out).Length -lt 400MB)) { throw "separator model download failed" }
+
       - name: Stage resources
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-runtime.ps1
@@ -116,6 +130,18 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - run: pnpm install --frozen-lockfile
+      - name: Fetch separator model
+        run: |
+          mkdir -p src-tauri/resources/separator
+          out=src-tauri/resources/separator/MDX23C-8KFFT-InstVoc_HQ.ckpt
+          url="https://github.com/${{ github.repository }}/releases/download/separator-mdx23c/MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          for i in 1 2 3 4 5; do
+            curl -L --fail --retry 5 --retry-all-errors --connect-timeout 20 -o "$out" "$url" || true
+            if [ -f "$out" ] && [ "$(stat -f%z "$out" 2>/dev/null || stat -c%s "$out")" -gt 400000000 ]; then echo "separator model ok"; break; fi
+            echo "separator retry $i"; sleep $((10 * i))
+          done
+          test -f "$out" || (echo "separator download failed" && exit 1)
+
       - name: Stage resources
         run: |
           mkdir -p src-tauri/resources/upstream src-tauri/resources/assets src-tauri/resources/bin
