@@ -156,8 +156,8 @@ export const backend = {
 
   trainRecommend: (vramMb?: number | null) =>
     call<Recommend>("train_recommend", { vramMb: vramMb ?? null }),
-  trainStart: (projectId: string, smoke = false, resume = false) =>
-    call<string>("train_start", { projectId, smoke, resume, kind: null }),
+  trainStart: (projectId: string, smoke = false, resume = false, kind: "main" | "diffusion" = "main") =>
+    call<string>("train_start", { projectId, smoke, resume, kind }),
   trainStop: (jobId: string) => call<boolean>("train_stop", { jobId }),
   trainArchive: (projectId: string) => call<string>("train_archive", { projectId }),
   trainCheckpoints: (projectId: string) =>

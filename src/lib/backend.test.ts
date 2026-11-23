@@ -30,7 +30,7 @@ describe("backend command wrappers", () => {
       projectId: "prj_1",
       smoke: true,
       resume: true,
-      kind: null,
+      kind: "main",
     });
   });
 

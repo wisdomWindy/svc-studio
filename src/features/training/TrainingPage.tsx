@@ -181,13 +181,13 @@ export function TrainingPage() {
     };
   }, [project?.id]);
 
-  async function start(smoke: boolean, resume = false) {
+  async function start(smoke: boolean, resume = false, kind: "main" | "diffusion" = "main") {
     if (!project) return;
-    setBusy(smoke ? "smoke" : "train");
+    setBusy(smoke ? "smoke" : kind === "diffusion" ? "diffusion" : "train");
     setError(null);
     setMessage(null);
     try {
-      const id = await backend.trainStart(project.id, smoke, resume);
+      const id = await backend.trainStart(project.id, smoke, resume, kind);
       setJobId(id);
       setRunning(true);
       setMessage(`${smoke ? "冒烟" : "训练"}已启动：${id}`);
@@ -293,6 +293,13 @@ export function TrainingPage() {
                   onClick={() => void start(true)}
                 >
                   {busy === "smoke" ? "启动中…" : "100 步冒烟"}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!!busy}
+                  onClick={() => void start(false, false, "diffusion")}
+                >
+                  {busy === "diffusion" ? "启动中…" : "训练扩散模型"}
                 </Button>
                 <Button
                   variant="primary"
