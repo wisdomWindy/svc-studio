@@ -162,8 +162,9 @@ export const backend = {
   trainArchive: (projectId: string) => call<string>("train_archive", { projectId }),
   trainCheckpoints: (projectId: string) =>
     call<CheckpointInfo[]>("train_checkpoints", { projectId }),
-  trainAux: (projectId: string, kind: "cluster" | "index") =>
-    call<Record<string, unknown>>("train_aux", { projectId, kind }),
+  // 聚类/索引要跑几十秒到几分钟，远超默认 15s IPC；这里放宽到 30 分钟
+  trainAux: (projectId: string, kind: "cluster" | "index", timeoutMs = 30 * 60 * 1000) =>
+    call<Record<string, unknown>>("train_aux", { projectId, kind }, timeoutMs),
   registerModel: (projectId: string, checkpoint: string, name?: string) =>
     call<RegisterModelResult>("register_model", {
       input: { projectId, checkpoint, name: name ?? null },
