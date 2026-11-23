@@ -99,16 +99,16 @@ export function TrainingPage() {
     if (!project) return;
     if (
       !window.confirm(
-        "归档当前训练产物并重新开始？\n\n旧的 checkpoint 会改名保留在 logs/44k_<时间戳>，不会被删除。",
+        "清空当前训练产物并重新训练？\n\n将删除 logs/44k 与 logs/diffusion：\n· 所有 checkpoint\n· 浅扩散模型\n· 聚类模型 kmeans_10000.pt\n· 特征索引 feature_and_index.pkl\n\n已登记到模型库的模型不受影响。",
       )
     )
       return;
     setArchiveBusy(true);
     setError(null);
     try {
-      const archived = await backend.trainArchive(project.id);
+      await backend.trainReset(project.id);
       setCheckpoints([]);
-      setMessage(`已归档到 ${archived.split(/[\\/]/).pop()}，可以重新开始训练了`);
+      setMessage(`已清空训练产物（checkpoint / 扩散模型 / 聚类 / 索引），可以重新训练了`);
     } catch (e) {
       setError(toErrorText(e));
     } finally {
@@ -314,7 +314,7 @@ export function TrainingPage() {
                 </Button>
                 {checkpoints.length > 0 && (
                   <Button disabled={!!busy || archiveBusy} onClick={() => void archiveAndReset()}>
-                    {archiveBusy ? "归档中…" : "归档并重新训练"}
+                    {archiveBusy ? "清理中…" : "重新训练"}
                   </Button>
                 )}
               </>

@@ -357,50 +357,50 @@ fn find_active_train(state: &crate::AppPaths) -> AppResult<Option<(String, Strin
 /// 只重命名 `logs/44k` 为 `logs/44k_<时间戳>`，不删除任何 checkpoint；
 /// 换说话人、换数据集重新训练时用。
 #[tauri::command]
-pub fn train_archive(state: State<'_, AppPaths>, project_id: String) -> AppResult<String> {
+pub fn train_reset(state: State<'_, AppPaths>, project_id: String) -> AppResult<String> {
     let root = project_root(&state, &project_id)?;
     let logs = root.join("logs");
     let current = logs.join("44k");
+
+    // 训练中不允许清空
+    let has_active = state
+        .db
+        .with(|c| {
+            let n: i64 = c
+                .query_row(
+                    "SELECT count(*) FROM jobs WHERE project_id = ?1 AND status IN ('running','queued')",
+                    rusqlite::params![project_id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap_or(0);
+            Ok(n)
+        })
+        .unwrap_or(0)
+        > 0;
+    {
+        if has_active {
+            return Err(Box::new(AppError::new(
+                "SVC-5004",
+                "训练任务正在运行",
+                "先停止训练，再点「重新训练」",
+            )));
+        }
+    }
+
     if !current.is_dir() {
-        return Err(Box::new(AppError::new(
-            "SVC-5001",
-            "没有可归档的训练产物",
-            "logs/44k 不存在，直接开始训练即可",
-        )));
+        return Ok("没有需要清理的训练产物".to_string());
     }
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let mut target = logs.join(format!("44k_{stamp}"));
-    let mut n = 1;
-    while target.exists() {
-        target = logs.join(format!("44k_{stamp}-{n}"));
-        n += 1;
+
+    let mut removed = Vec::new();
+    for name in ["44k", "diffusion"] {
+        let dir = logs.join(name);
+        if dir.is_dir() && std::fs::remove_dir_all(&dir).is_ok() {
+            removed.push(name.to_string());
+        }
     }
-    std::fs::rename(&current, &target).map_err(|e| {
-        Box::new(AppError::new(
-            "SVC-5001",
-            "归档失败",
-            format!("可能有训练正在运行或文件被占用：{e}"),
-        ))
-    })?;
-    // 已登记模型的路径要跟着走：否则归档后模型库里的模型全部失效
-    let old_prefix = format!("{}{}", current.to_string_lossy(), std::path::MAIN_SEPARATOR);
-    let new_prefix = format!("{}{}", target.to_string_lossy(), std::path::MAIN_SEPARATOR);
-    let old_alt = current.to_string_lossy().to_string();
-    let new_alt = target.to_string_lossy().to_string();
-    state.db.with(|c| {
-        c.execute(
-            "UPDATE models SET path = REPLACE(path, ?1, ?2) WHERE path LIKE ?3",
-            rusqlite::params![old_alt, new_alt, format!("{old_alt}%")],
-        )?;
-        Ok(())
-    })?;
-    tracing::info!(
-        archived = %target.display(),
-        old = %old_prefix,
-        new = %new_prefix,
-        "training artifacts archived; registered model paths rewritten"
-    );
-    Ok(target.to_string_lossy().to_string())
+    // 聚类模型 / 特征索引在 44k 目录内，随上面一起删除
+    tracing::info!(removed = ?removed, "training artifacts reset");
+    Ok(removed.join(", "))
 }
 
 #[tauri::command]

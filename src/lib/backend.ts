@@ -159,7 +159,7 @@ export const backend = {
   trainStart: (projectId: string, smoke = false, resume = false, kind: "main" | "diffusion" = "main") =>
     call<string>("train_start", { projectId, smoke, resume, kind }),
   trainStop: (jobId: string) => call<boolean>("train_stop", { jobId }),
-  trainArchive: (projectId: string) => call<string>("train_archive", { projectId }),
+  trainReset: (projectId: string) => call<string>("train_reset", { projectId }, 10 * 60 * 1000),
   trainCheckpoints: (projectId: string) =>
     call<CheckpointInfo[]>("train_checkpoints", { projectId }),
   // 聚类/索引要跑几十秒到几分钟，远超默认 15s IPC；这里放宽到 30 分钟

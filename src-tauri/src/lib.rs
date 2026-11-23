@@ -353,7 +353,7 @@ pub fn run() {
             commands::preprocess::config_assert,
             commands::train::train_recommend,
             commands::train::train_start,
-            commands::train::train_archive,
+            commands::train::train_reset,
             commands::train::train_stop,
             commands::train::train_checkpoints,
             commands::train::train_aux,
