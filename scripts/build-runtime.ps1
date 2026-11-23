@@ -181,6 +181,17 @@ import sys
 _up = os.environ.get("SVCSTUDIO_UPSTREAM_DIR")
 if _up and os.path.isdir(_up) and _up not in sys.path:
     sys.path.insert(0, _up)
+
+# torch >= 2.6 默认 weights_only=True，老式 .tar 权重会报错；权重均为本地可信文件
+try:
+    import torch as _torch
+    _orig_load = _torch.load
+    def _load(*args, **kwargs):
+        kwargs.setdefault("weights_only", False)
+        return _orig_load(*args, **kwargs)
+    _torch.load = _load
+except Exception:
+    pass
 "@
 [System.IO.File]::WriteAllText((Join-Path $out "Lib\site-packages\sitecustomize.py"), $sitecustomize, (New-Object System.Text.UTF8Encoding($false)))
 
