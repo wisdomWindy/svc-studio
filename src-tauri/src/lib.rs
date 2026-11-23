@@ -290,6 +290,7 @@ pub fn run() {
                 }
             };
             svc_step("init_state ok");
+            crate::commands::models::migrate_into_store(&state);
             tracing::info!(
                 db = %state.db.path.display(),
                 version = state.db.version,

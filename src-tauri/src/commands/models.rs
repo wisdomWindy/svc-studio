@@ -103,9 +103,13 @@ pub fn register_model(
         .unwrap_or(false);
 
     // 同一个 checkpoint 重复登记：直接返回已有记录，不重复插入
+    let dedupe_hit = state
+        .db
+        .with(|c| crate::core::repo::models::find_by_path(c, &checkpoint.to_string_lossy()))?;
     if let Some(existing) = state
         .db
         .with(|c| crate::core::repo::models::find_by_path(c, &input.checkpoint))?
+        .or(dedupe_hit)
     {
         return Ok(RegisterModelOutput {
             model: existing,
@@ -113,6 +117,29 @@ pub fn register_model(
             already_registered: true,
         });
     }
+
+    // 统一模型仓库：训练产物也复制一份到 data/models，与训练目录解耦
+    let store_dir = state
+        .data_root
+        .join("models")
+        .join("trained")
+        .join(&project.id);
+    std::fs::create_dir_all(&store_dir)?;
+    let store_weight = store_dir.join(&file_name);
+    if !store_weight.is_file()
+        || std::fs::metadata(&store_weight)
+            .map(|m| m.len())
+            .unwrap_or(0)
+            != std::fs::metadata(&checkpoint).map(|m| m.len()).unwrap_or(1)
+    {
+        let tmp = store_dir.join(format!("{file_name}.tmp"));
+        std::fs::copy(&checkpoint, &tmp)?;
+        std::fs::rename(&tmp, &store_weight)?;
+    }
+    let store_config = store_dir.join("config.json");
+    std::fs::copy(&config_path, &store_config)?;
+    let checkpoint = store_weight.clone();
+    let config_path = store_config.clone();
 
     let sha256 = crate::infra::fs::sha256_file(&checkpoint)?;
     let bytes = std::fs::metadata(&checkpoint).ok().map(|m| m.len() as i64);
@@ -242,6 +269,60 @@ pub fn delete_model(state: State<'_, AppPaths>, id: String) -> AppResult<()> {
     }
 
     state.db.with(|c| models::delete(c, &id))
+}
+
+/// 把历史登记的模型（路径散落在 projects/logs 下）统一收进 data/models。
+/// 这样归档、滚动删除、项目迁移都不会再让模型失效。
+pub fn migrate_into_store(state: &crate::AppPaths) {
+    let store_root = state.data_root.join("models");
+    let cards = match state.db.with(crate::core::repo::models::list) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    for card in cards {
+        let src = std::path::PathBuf::from(&card.path);
+        if src.starts_with(&store_root) {
+            continue;
+        }
+        if !src.is_file() {
+            continue;
+        }
+        let sub = if card.source == "trained" {
+            "trained".to_string()
+        } else {
+            "imports".to_string()
+        };
+        let dir = store_root.join(&sub).join(
+            card.project_id
+                .clone()
+                .unwrap_or_else(|| "_external".into()),
+        );
+        if std::fs::create_dir_all(&dir).is_err() {
+            continue;
+        }
+        let name = src
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "model.pth".into());
+        let dest = dir.join(&name);
+        if !dest.is_file() && std::fs::copy(&src, &dest).is_err() {
+            continue;
+        }
+        let cfg_src = std::path::PathBuf::from(&card.config_path);
+        let cfg_dest = dir.join("config.json");
+        if !cfg_dest.is_file() && cfg_src.is_file() {
+            let _ = std::fs::copy(&cfg_src, &cfg_dest);
+        }
+        let cfg_path = if cfg_dest.is_file() {
+            cfg_dest.to_string_lossy().to_string()
+        } else {
+            card.config_path.clone()
+        };
+        let _ = state.db.with(|c| {
+            crate::core::repo::models::relink(c, &card.id, &dest.to_string_lossy(), &cfg_path)
+        });
+        tracing::info!(model = %card.id, to = %dest.display(), "model moved into data/models");
+    }
 }
 
 #[cfg(test)]

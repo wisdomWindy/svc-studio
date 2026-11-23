@@ -181,6 +181,15 @@ pub fn mark_missing(conn: &Connection) -> AppResult<Vec<String>> {
     Ok(changed)
 }
 
+/// 模型文件换位置（统一迁移到 data/models 时用）
+pub fn relink(conn: &Connection, id: &str, path: &str, config_path: &str) -> AppResult<()> {
+    conn.execute(
+        "UPDATE models SET path = ?1, config_path = ?2 WHERE id = ?3",
+        rusqlite::params![path, config_path, id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
