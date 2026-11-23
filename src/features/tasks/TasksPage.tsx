@@ -37,6 +37,7 @@ export function TasksPage() {
   const project = useActiveProject();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [checked, setChecked] = useState<string[]>([]);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -80,6 +81,31 @@ export function TasksPage() {
     };
   }, [selected]);
 
+
+  const isActive = (job: Job) => job.status === "running" || job.status === "queued";
+  const deletable = jobs.filter((j) => !isActive(j));
+
+  async function removeJobs(ids: string[]) {
+    if (ids.length === 0) return;
+    const notAllowed = ids.filter((id) => jobs.find((j) => j.id === id && isActive(j)));
+    if (notAllowed.length > 0) {
+      setError("运行中的任务不能删除，请先取消");
+      return;
+    }
+    try {
+      const res = await backend.deleteJobs(ids);
+      setError(null);
+      setChecked((prev) => prev.filter((id) => !ids.includes(id)));
+      if (selected && ids.includes(selected)) setSelected(null);
+      void backend.listJobs(100).then(setJobs).catch(() => undefined);
+      if (res.refused.length > 0) {
+        setError(`有 ${res.refused.length} 个运行中的任务未删除`);
+      }
+    } catch (e) {
+      setError(toErrorText(e));
+    }
+  }
+
   async function cancel(job: Job) {
     try {
       await backend.cancelJob(job.id);
@@ -103,10 +129,27 @@ export function TasksPage() {
       {error && <ErrorNotice error={error} compact />}
 
       <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr]">
+        <div className="space-y-2">
+          {checked.length > 0 && (
+            <div className="flex items-center justify-between rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px]">
+              <span className="text-muted">已选 {checked.length} 项</span>
+              <Button size="sm" variant="ghost" onClick={() => void removeJobs(checked)}>
+                批量删除
+              </Button>
+            </div>
+          )}
         <div className="overflow-hidden rounded-lg border border-line">
           <table className="w-full text-left text-[12px]">
             <thead className="bg-raised text-muted">
               <tr>
+                <th className="w-8 px-2 py-2">
+                  <input
+                    type="checkbox"
+                    aria-label="全选"
+                    checked={deletable.length > 0 && checked.length === deletable.length}
+                    onChange={(e) => setChecked(e.target.checked ? deletable.map((j) => j.id) : [])}
+                  />
+                </th>
                 {["类型", "状态", "进度", "开始", ""].map((h) => (
                   <th key={h} className="px-3 py-2 font-medium">
                     {h}
@@ -130,6 +173,20 @@ export function TasksPage() {
                     selected === job.id ? "bg-raised/60" : "hover:bg-raised/40"
                   }`}
                 >
+                  <td className="px-2 py-1.5">
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${job.id}`}
+                      disabled={isActive(job)}
+                      checked={checked.includes(job.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) =>
+                        setChecked((prev) =>
+                          e.target.checked ? [...prev, job.id] : prev.filter((x) => x !== job.id),
+                        )
+                      }
+                    />
+                  </td>
                   <td className="px-3 py-1.5">{job.type}</td>
                   <td className={`px-3 py-1.5 ${TONE[statusTone(job.status)]}`}>
                     {statusLabel(job.status)}
@@ -206,11 +263,23 @@ export function TasksPage() {
                         重试
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={isActive(job)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void removeJobs([job.id]);
+                      }}
+                    >
+                      删除
+                    </Button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="rounded-lg border border-line bg-surface">

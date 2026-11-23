@@ -216,6 +216,13 @@ fn process_alive(pid: i64) -> bool {
     std::path::Path::new(&format!("/proc/{pid}")).exists()
 }
 
+/// 删除任务及其事件。调用方需先确保任务不在运行中。
+pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
+    conn.execute("DELETE FROM job_events WHERE job_id = ?1", [id])?;
+    conn.execute("DELETE FROM jobs WHERE id = ?1", [id])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -263,3 +263,25 @@ pub fn job_open_output(state: State<'_, AppPaths>, id: String) -> AppResult<Stri
         .map_err(|e| Box::new(AppError::new("SVC-6001", "无法打开产物", e.to_string())))?;
     Ok(target.to_string_lossy().to_string())
 }
+
+/// 批量删除任务记录。运行中/排队中的任务不允许删除（返回被拒绝的 id）。
+#[tauri::command]
+pub fn delete_jobs(state: State<'_, AppPaths>, ids: Vec<String>) -> AppResult<serde_json::Value> {
+    let mut deleted = 0usize;
+    let mut refused: Vec<String> = Vec::new();
+
+    for id in &ids {
+        let job = state.db.with(|c| jobs::get(c, id))?;
+        let Some(job) = job else { continue };
+        if job.status == "running" || job.status == "queued" {
+            refused.push(id.clone());
+            continue;
+        }
+        // 先让运行中的进程登记表释放，再删库
+        let _ = state.running.cancel(id);
+        state.db.with(|c| jobs::delete(c, id))?;
+        deleted += 1;
+    }
+
+    Ok(serde_json::json!({ "deleted": deleted, "refused": refused }))
+}

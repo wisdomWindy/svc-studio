@@ -310,6 +310,7 @@ pub fn run() {
             commands::projects::delete_project,
             commands::projects::project_open_dir,
             commands::jobs::list_jobs,
+            commands::jobs::delete_jobs,
             commands::jobs::get_job,
             commands::jobs::job_events,
             commands::jobs::jobs_summary,
