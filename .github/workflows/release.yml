@@ -87,17 +87,20 @@ jobs:
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-runtime.ps1
       - name: Fetch separator model
         shell: pwsh
+        continue-on-error: true
         run: |
           $dir = "src-tauri/resources/separator"
           New-Item -ItemType Directory -Force $dir | Out-Null
           $out = Join-Path $dir "MDX23C-8KFFT-InstVoc_HQ.ckpt"
-          $url = "https://github.com/${{ github.repository }}/releases/download/separator-mdx23c/MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          $url = "https://github.com/${{ github.repository }}/releases/download/assets-separator/MDX23C-8KFFT-InstVoc_HQ.ckpt"
           for ($i = 1; $i -le 6; $i++) {
             curl.exe -L --retry 5 --retry-all-errors --connect-timeout 20 -o $out $url
             if ((Test-Path $out) -and ((Get-Item $out).Length -gt 400MB)) { Write-Host "separator model ok"; exit 0 }
             Write-Host "separator retry $i"; Start-Sleep -Seconds (10 * $i)
           }
-          throw "separator model download failed"
+          Write-Host "::warning::separator 模型下载失败，安装包将不含 MDX23C（推理回退 Demucs）"
+          Set-Content -Path (Join-Path $dir "README.txt") -Value "MDX23C not bundled" -Encoding ASCII
+
       - name: Build installer (signed)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -142,17 +145,19 @@ jobs:
           curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/model https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/model
           curl -L --fail --retry 3 -o src-tauri/resources/pretrain/nsf_hifigan/config.json https://hf-mirror.com/choihkk/nsf-hifigan/resolve/main/config.json
       - name: Fetch separator model
+        continue-on-error: true
         run: |
           mkdir -p src-tauri/resources/separator
           out=src-tauri/resources/separator/MDX23C-8KFFT-InstVoc_HQ.ckpt
-          url="https://github.com/${{ github.repository }}/releases/download/separator-mdx23c/MDX23C-8KFFT-InstVoc_HQ.ckpt"
+          url="https://github.com/${{ github.repository }}/releases/download/assets-separator/MDX23C-8KFFT-InstVoc_HQ.ckpt"
           for i in 1 2 3 4 5 6; do
             curl -L --fail --retry 5 --retry-all-errors --connect-timeout 20 -o "$out" "$url" || true
-            size=$(stat -f%z "$out" 2>/dev/null || echo 0)
-            if [ "$size" -gt 400000000 ]; then echo "separator model ok"; exit 0; fi
+            if [ -f "$out" ] && [ "$(wc -c < "$out")" -gt 400000000 ]; then echo "separator model ok"; exit 0; fi
             echo "separator retry $i"; sleep $((10 * i))
           done
-          exit 1
+          echo "::warning::separator 模型下载失败，dmg 将不含 MDX23C"
+          echo "not bundled" > src-tauri/resources/separator/README.txt
+
       - name: Build dmg (retry once)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
