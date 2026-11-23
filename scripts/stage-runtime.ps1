@@ -40,8 +40,18 @@ if ($DryRun) {
   exit 0
 }
 
+# 分离模型由 CI 下载、体积大，清空 resources 前先挪出去
+$separatorBackup = $resources + ".separator.bak"
+if (Test-Path (Join-Path $resources "separator")) {
+    if (Test-Path $separatorBackup) { Remove-Item -Recurse -Force $separatorBackup }
+    Move-Item (Join-Path $resources "separator") $separatorBackup
+}
 if (Test-Path $resources) { Remove-Item -Recurse -Force $resources }
 New-Item -ItemType Directory -Force -Path $resources | Out-Null
+if (Test-Path $separatorBackup) {
+    Move-Item $separatorBackup (Join-Path $resources "separator")
+    Write-Host "    已恢复分离模型（MDX23C）"
+}
 
 if (Test-Path "runtime") {
   Copy-Item -Recurse -Force "runtime" (Join-Path $resources "runtime")
