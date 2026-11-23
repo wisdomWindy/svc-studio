@@ -37,6 +37,17 @@ def separate_song(src: Path, dest_dir: Path, device: str = "", model: str = "htd
     if vocals.is_file() and accomp.is_file():
         return {"ok": True, "vocals": vocals, "accompaniment": accomp, "cached": True}
 
+    # 优先 UVR5 MDX23C；模型缺失时回退 Demucs
+    import os as _os
+
+    if _os.environ.get("SVCSTUDIO_SEPARATOR", "mdx23c") != "demucs":
+        try:
+            mdx_result = separate_song_mdx(src, dest_dir, device)
+            if mdx_result is not None:
+                return mdx_result
+        except Exception as exc:  # noqa: BLE001
+            print(f"[separate] MDX23C 失败，回退 Demucs：{exc}")
+
     from demucs.api import Separator
     from demucs.audio import save_audio
 
@@ -61,6 +72,100 @@ def separate_song(src: Path, dest_dir: Path, device: str = "", model: str = "htd
     save(torch.from_numpy(other), str(accomp), separator.samplerate)
     return {"ok": True, "vocals": vocals, "accompaniment": accomp, "cached": False}
 
+
+
+def _separator_asset(name: str) -> Optional[Path]:
+    """分离模型与配置放在 <安装目录>\\resources\\separator（由 Rust 传入环境变量）。"""
+    import os
+
+    for key in ("SVCSTUDIO_SEPARATOR_DIR", "SVCSTUDIO_UPSTREAM_DIR"):
+        root = os.environ.get(key, "")
+        if not root:
+            continue
+        candidate = Path(root) / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def separate_song_mdx(src: Path, dest_dir: Path, device: str = "") -> Optional[Dict[str, Any]]:
+    """用 UVR5 MDX23C 分离人声（比 Demucs 干净、高频伪影少）。
+
+    模型或配置缺失时返回 None，调用方回退 Demucs。
+    """
+    model_path = _separator_asset("MDX23C-8KFFT-InstVoc_HQ.ckpt")
+    data_dir = _separator_asset("mdx_model_data")
+    if model_path is None or data_dir is None:
+        return None
+
+    import importlib.util
+    import os
+
+    up = os.environ.get("SVCSTUDIO_UPSTREAM_DIR", "")
+    if not up:
+        return None
+    mdx_py = Path(up) / "mdx_inference.py"
+    dec_py = Path(up) / "audio_decode.py"
+    if not mdx_py.is_file() or not dec_py.is_file():
+        return None
+
+    def _load(name: str, path: Path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod
+
+    mdx = _load("mdx_inference", mdx_py)
+    dec = _load("audio_decode", dec_py)
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    vocals = dest_dir / (src.stem + ".vocals.wav")
+    accomp = dest_dir / (src.stem + ".accompaniment.wav")
+    if vocals.is_file() and accomp.is_file():
+        return {"ok": True, "vocals": vocals, "accompaniment": accomp, "cached": True, "engine": "mdx23c"}
+
+    dev = _pick_device(device)
+    mix, sr = dec.load_audio_stereo_at_sr(str(src), TARGET_SR)
+    config_path = Path(data_dir) / "mdx_c_configs" / "model_2_stem_full_band_8k.yaml"
+    if not config_path.is_file():
+        return None
+
+    import soundfile as sf
+    import torch
+
+    config = mdx.load_mdx_c_config(str(config_path))
+    model = mdx.TFC_TDF_net(config, dev)
+    state = torch.load(str(model_path), map_location="cpu", weights_only=False)
+    model.load_state_dict(state)
+    model.to(dev).eval()
+
+    result = mdx.mdx_c_separate(model, config, mix, dev, overlap=8, batch_size=1)
+    if not isinstance(result, dict):
+        return None
+
+    written = {}
+    vocal_audio = None
+    for stem_name, audio_arr in result.items():
+        arr = np.asarray(audio_arr).squeeze()
+        while arr.ndim > 2:
+            arr = arr[0]
+        if arr.ndim == 2 and arr.shape[0] <= arr.shape[1]:
+            arr = arr.T
+        key = stem_name.lower()
+        target = vocals if "vocal" in key else accomp
+        sf.write(str(target), arr, TARGET_SR, subtype="FLOAT")
+        written[key] = target
+        if target is vocals:
+            vocal_audio = arr
+
+    if vocals not in written.values():
+        return None
+    if not accomp.is_file() and vocal_audio is not None:
+        # 单 stem 模型只输出人声：伴奏 = 原曲 - 人声
+        vmat = vocal_audio if vocal_audio.ndim == 1 else vocal_audio.T  # (C, T)
+        acc = mix[:, : vmat.shape[1]] - vmat
+        sf.write(str(accomp), acc.T, TARGET_SR, subtype="FLOAT")
+    return {"ok": True, "vocals": vocals, "accompaniment": accomp, "cached": False, "engine": "mdx23c"}
 
 def _read(path: Path) -> tuple[np.ndarray, int]:
     """读 44.1k 单声道样本；wav 用自研解析，其它格式（flac 等）走 soundfile。"""

@@ -117,6 +117,10 @@ pub fn worker_env(worker_dir: &Path) -> Vec<(String, String)> {
         ("PYTHONNOUSERSITE".to_string(), "1".to_string()),
         ("PYTHONSAFEPATH".to_string(), "1".to_string()),
         (
+            "SVCSTUDIO_SEPARATOR_DIR".to_string(),
+            resolve_separator_dir().to_string_lossy().to_string(),
+        ),
+        (
             "SVCSTUDIO_UPSTREAM_DIR".to_string(),
             resolve_upstream_dir().to_string_lossy().to_string(),
         ),
@@ -132,6 +136,17 @@ fn exe_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
+}
+
+/// 分离模型目录：<安装目录>/resources/separator
+pub fn resolve_separator_dir() -> PathBuf {
+    if let Some(dir) = exe_dir() {
+        let p = dir.join("resources").join("separator");
+        if p.is_dir() {
+            return p;
+        }
+    }
+    PathBuf::from("resources").join("separator")
 }
 
 pub fn resolve_python() -> PathBuf {
