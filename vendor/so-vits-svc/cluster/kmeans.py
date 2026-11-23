@@ -1,7 +1,10 @@
 from time import time
 
 import numpy as np
-import pynvml
+try:
+    import pynvml
+except ImportError:  # 可选依赖：CPU 聚类不需要
+    pynvml = None
 import torch
 from torch.nn.functional import normalize
 
@@ -86,6 +89,8 @@ class KMeansGPU:
     self.verbose = verbose
     self.mode = mode
     self.device=device
+    if pynvml is None:
+        raise RuntimeError("GPU 聚类需要安装 nvidia-ml-py")
     pynvml.nvmlInit()
     gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(device.index)
     info = pynvml.nvmlDeviceGetMemoryInfo(gpu_handle)

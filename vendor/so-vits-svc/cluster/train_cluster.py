@@ -7,6 +7,11 @@ from pathlib import Path
 import numpy as np
 import torch
 import tqdm
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from kmeans import KMeansGPU
 from sklearn.cluster import KMeans, MiniBatchKMeans
 
@@ -32,9 +37,16 @@ def train_cluster(in_dir, n_clusters, use_minibatch=True, verbose=False,use_gpu=
     t = time.time()
     if(use_gpu is False):
         if use_minibatch:
-            kmeans = MiniBatchKMeans(n_clusters=n_clusters,verbose=verbose, batch_size=4096, max_iter=80).fit(features)
+            kmeans = MiniBatchKMeans(
+                n_clusters=n_clusters,
+                verbose=verbose,
+                batch_size=4096,
+                max_iter=80,
+                init="random",
+                n_init=3,
+            ).fit(features)
         else:
-            kmeans = KMeans(n_clusters=n_clusters,verbose=verbose).fit(features)
+            kmeans = KMeans(n_clusters=n_clusters, verbose=verbose).fit(features)
     else:
             kmeans = KMeansGPU(n_clusters=n_clusters, mode='euclidean', verbose=2 if verbose else 0,max_iter=500,tol=1e-2)#
             features=torch.from_numpy(features)#.to(device)
@@ -73,7 +85,8 @@ if __name__ == "__main__":
         if os.path.isdir(dataset/spk):
             print(f"train kmeans for {spk}...")
             in_dir = dataset/spk
-            x = train_cluster(in_dir, n_clusters,use_minibatch=False,verbose=False,use_gpu=use_gpu)
+            # MiniBatch 比全量 KMeans 快两个数量级；10000 聚类用全量在 CPU 上要跑几小时
+            x = train_cluster(in_dir, n_clusters, use_minibatch=True, verbose=False, use_gpu=use_gpu)
             ckpt[spk] = x
 
     checkpoint_path = checkpoint_dir / f"kmeans_{n_clusters}.pt"

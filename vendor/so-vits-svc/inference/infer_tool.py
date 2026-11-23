@@ -178,7 +178,9 @@ class Svc(object):
             else:
                 self.cluster_model = cluster.get_cluster_model(cluster_model_path)
         else:
-            self.feature_retrieval=False
+            # 没有聚类模型：显式置空，避免 slice_inference 里 AttributeError
+            self.cluster_model = None
+            self.feature_retrieval = False
 
         if self.shallow_diffusion :
             self.nsf_hifigan_enhance = False
