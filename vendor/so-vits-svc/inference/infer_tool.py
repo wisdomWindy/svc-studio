@@ -380,6 +380,12 @@ class Svc(object):
                         second_encoding = False,
                         loudness_envelope_adjustment = 1
                         ):
+        # 没有聚类模型/索引时静默忽略对应参数，避免 NoneType 下标错误
+        if getattr(self, "cluster_model", None) is None:
+            cluster_infer_ratio = 0
+        if getattr(self, "feature_retrieval", False) and getattr(self, "big_npy", None) is None:
+            self.feature_retrieval = False
+
         if use_spk_mix:
             if len(self.spk2id) == 1:
                 spk = self.spk2id.keys()[0]
