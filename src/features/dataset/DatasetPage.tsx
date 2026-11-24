@@ -56,7 +56,11 @@ export function DatasetPage() {
         if (cancelled) return;
         setScan(scanned as Record<string, unknown>);
       } catch (e) {
-        if (!cancelled) setError(toErrorText(e));
+        if (!cancelled) {
+          setError(toErrorText(e));
+          // 扫描失败也要退出「扫描中」状态，否则界面会一直显示扫描中
+          setScanning(false);
+        }
         return;
       }
       try {

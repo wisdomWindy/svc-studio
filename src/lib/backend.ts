@@ -118,8 +118,9 @@ export const backend = {
       "dataset_prepare",
       { projectId, separate },
     ),
-  datasetScan: (projectId: string) =>
-    call<Record<string, unknown>>("dataset_scan", { projectId }),
+  // 扫描要遍历目录并读文件头，数据多时会超过默认 15s
+  datasetScan: (projectId: string, timeoutMs = 5 * 60 * 1000) =>
+    call<Record<string, unknown>>("dataset_scan", { projectId }, timeoutMs),
   // QC 走后台任务，进度通过 dataset-progress 事件回传（kind="qc"）
   datasetQc: (projectId: string) => call<void>("dataset_qc", { projectId }),
   datasetSlice: (
