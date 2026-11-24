@@ -3,7 +3,9 @@ import type { AppError } from "@/types";
 import { toErrorText } from "./errors";
 
 /** IPC 的唯一出口：超时、错误归一、dev 日志。业务代码不得直接 invoke。 */
-const DEFAULT_TIMEOUT_MS = 15_000;
+// 0 = 不设超时：长任务（预处理/训练/扫描/QC）跑多久就等多久；
+// 需要防挂死的少数调用会显式传 timeoutMs。
+const DEFAULT_TIMEOUT_MS = 0;
 
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -35,13 +37,18 @@ export async function call<T>(
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error(`IPC timeout: ${command} > ${timeoutMs}ms`)),
-        timeoutMs,
-      );
-    });
-    const result = await Promise.race([invoke<T>(command, args), timeout]);
+    let result: T;
+    if (timeoutMs > 0) {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`IPC timeout: ${command} > ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      });
+      result = await Promise.race([invoke<T>(command, args), timeout]);
+    } else {
+      result = await invoke<T>(command, args);
+    }
     if (import.meta.env.DEV) console.debug(`[ipc] ${command}`, result);
     return result;
   } catch (e) {

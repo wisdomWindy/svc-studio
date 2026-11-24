@@ -119,7 +119,7 @@ export const backend = {
       { projectId, separate },
     ),
   // 扫描要遍历目录并读文件头，数据多时会超过默认 15s
-  datasetScan: (projectId: string, timeoutMs = 5 * 60 * 1000) =>
+  datasetScan: (projectId: string, timeoutMs = 0) =>
     call<Record<string, unknown>>("dataset_scan", { projectId }, timeoutMs),
   // QC 走后台任务，进度通过 dataset-progress 事件回传（kind="qc"）
   datasetQc: (projectId: string) => call<void>("dataset_qc", { projectId }),
@@ -164,7 +164,7 @@ export const backend = {
   trainCheckpoints: (projectId: string) =>
     call<CheckpointInfo[]>("train_checkpoints", { projectId }),
   // 聚类/索引要跑几十秒到几分钟，远超默认 15s IPC；这里放宽到 30 分钟
-  trainAux: (projectId: string, kind: "cluster" | "index", timeoutMs = 30 * 60 * 1000) =>
+  trainAux: (projectId: string, kind: "cluster" | "index", timeoutMs = 0) =>
     call<Record<string, unknown>>("train_aux", { projectId, kind }, timeoutMs),
   registerModel: (projectId: string, checkpoint: string, name?: string) =>
     call<RegisterModelResult>("register_model", {
