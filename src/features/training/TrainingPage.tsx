@@ -30,7 +30,9 @@ export function TrainingPage() {
     step: null,
     total: null,
   });
-  const [registeredPaths, setRegisteredPaths] = useState<Set<string>>(new Set());
+  // 用「步数」判断是否已登记：模型登记后文件会被复制到 data/models，
+  // 路径与 logs/44k 下的 checkpoint 不再一致，按路径比对会永远显示「登记为模型」。
+  const [registeredSteps, setRegisteredSteps] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const tick = () => void backend.gpuBusy().then(setGpuBusy).catch(() => setGpuBusy(false));
@@ -84,8 +86,14 @@ export function TrainingPage() {
   const refreshRegistered = useCallback(async () => {
     try {
       const models = await backend.listModels();
-      const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
-      setRegisteredPaths(new Set(models.map((m) => norm(m.path))));
+      setRegisteredSteps(
+        new Set(
+          models
+            .filter((m) => !project || !m.projectId || m.projectId === project.id)
+            .map((m) => Number(m.step))
+            .filter((n) => Number.isFinite(n)),
+        ),
+      );
     } catch {
       /* 读取失败时保持空集合，不影响训练 */
     }
@@ -408,7 +416,7 @@ export function TrainingPage() {
                   <td className="px-3 py-1.5 text-muted">{checkpoint.modified}</td>
                   <td className="px-3 py-1.5 text-right">
                     {!checkpoint.smoke &&
-                    (registeredPaths.has(checkpoint.path.replace(/\\/g, "/").toLowerCase()) ? (
+                    (registeredSteps.has(Number(checkpoint.step)) ? (
                       <span className="rounded border border-line px-2 py-0.5 text-[11px] text-muted">
                         已登记
                       </span>

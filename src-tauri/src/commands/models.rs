@@ -142,6 +142,18 @@ pub fn register_model(
     let config_path = store_config.clone();
 
     let sha256 = crate::infra::fs::sha256_file(&checkpoint)?;
+    // 同一份权重可能已经通过「导入模型」登记过（路径不同但内容相同）：
+    // 直接返回已有记录，让界面显示「已登记」，而不是抛 SVC-2002。
+    if let Some(existing) = state
+        .db
+        .with(|c| crate::core::repo::models::find_by_sha(c, &sha256))?
+    {
+        return Ok(RegisterModelOutput {
+            model: existing,
+            became_default: false,
+            already_registered: true,
+        });
+    }
     let bytes = std::fs::metadata(&checkpoint).ok().map(|m| m.len() as i64);
     let name = input
         .name
