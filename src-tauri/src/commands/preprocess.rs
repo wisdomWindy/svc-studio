@@ -250,8 +250,12 @@ pub(crate) fn preprocess_start_impl(
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
         // 预处理耗时随片段数线性增长：每个片段给 25s，另加 5 分钟固定开销
-        let clips = count_dataset_clips(&root_for_task);
-        let budget = std::time::Duration::from_secs(300 + 25 * clips.max(1) as u64);
+        // resample 读的是 dataset_raw，hubert 读的是 dataset/44k：两边都要算，
+        // 否则「刚导入还没切完」时会按 1 个切片给预算（325s）而中途超时。
+        let clips = count_dataset_clips(&root_for_task).max(
+            crate::commands::dataset::count_audio_files(&root_for_task.join("dataset_raw")),
+        );
+        let budget = std::time::Duration::from_secs(600 + 30 * clips.max(1) as u64);
         let result = run_cli_with(&arg_refs, budget).await;
         let now = now_iso();
 

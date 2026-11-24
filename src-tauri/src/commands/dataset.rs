@@ -89,7 +89,7 @@ fn dataset_raw(root: &Path) -> PathBuf {
 }
 
 /// 统计目录下的音频文件数（只用于估算超时）。
-fn count_audio_files(dir: &std::path::Path) -> usize {
+pub(crate) fn count_audio_files(dir: &std::path::Path) -> usize {
     const EXTS: [&str; 8] = ["wav", "flac", "mp3", "m4a", "ogg", "aac", "wma", "opus"];
     fn walk(dir: &std::path::Path, acc: &mut usize) {
         let Ok(entries) = std::fs::read_dir(dir) else {
