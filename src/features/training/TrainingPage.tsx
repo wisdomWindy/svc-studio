@@ -68,7 +68,13 @@ export function TrainingPage() {
         if (cancelled) return;
         setEvents(page.events);
         // 只有 running/queued 才算"正在训练"，完成后按钮要变回来
-        setRunning(job?.status === "running" || job?.status === "queued");
+        const status = job?.status;
+    setRunning(status === "running" || status === "queued" || status === "stopping");
+    // 持久化的「停止中」：切页或刷新后按钮仍是【停止中…】
+    setStopping(status === "stopping");
+    if (status === "cancelled" || status === "failed" || status === "succeeded") {
+      setActiveJobId(null);
+    }
         setProgress({ step: job?.step ?? null, total: job?.total ?? null });
       } catch {
         // 轮询失败不打断界面

@@ -705,6 +705,14 @@ pub(crate) fn train_start_impl(
 
 #[tauri::command]
 pub fn train_stop(state: State<'_, AppPaths>, job_id: String) -> AppResult<bool> {
+    if state.running.cancel(&job_id) {
+        // 立刻落库「停止中」：前端切换页面后仍能读到，不会又变回「停止训练」
+        let now = now_iso();
+        state
+            .db
+            .with(|c| jobs::set_status(c, &job_id, "stopping", None, &now))?;
+        return Ok(true);
+    }
     if !state.running.cancel(&job_id) {
         let now = now_iso();
         state
