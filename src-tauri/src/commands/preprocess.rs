@@ -183,6 +183,7 @@ pub(crate) fn preprocess_start_impl(
 
     let scheduler = state.scheduler.clone();
     let db = state.db.clone();
+    let running = state.running.clone();
     let manifest_path = root
         .join("reports")
         .join("preprocess_manifest.json")
@@ -224,12 +225,32 @@ pub(crate) fn preprocess_start_impl(
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        // 预处理不做超时判定：跑多久等多久（进程崩溃仍会立刻返回错误）
-        let result = crate::core::worker_cli::run_cli_unbounded(&arg_refs).await;
+        // 预处理不做超时判定：跑多久等多久；用户可随时取消（杀进程树）
+        let cancel_rx = running.register(&job_for_task);
+        let result = crate::core::worker_cli::run_cli_cancellable(&arg_refs, cancel_rx).await;
+        if let Ok((_, _, true)) = &result {
+            let now = now_iso();
+            let _ = db.with(|c| {
+                jobs::append_event(
+                    c,
+                    &job_for_task,
+                    &jobs::NewJobEvent {
+                        level: "info",
+                        code: None,
+                        message: "用户取消预处理，已终止 worker 进程树",
+                        data_json: None,
+                        ts: &now,
+                    },
+                )?;
+                jobs::set_status(c, &job_for_task, "cancelled", None, &now)
+            });
+            return;
+        }
+        running.unregister(&job_for_task);
         let now = now_iso();
 
         match result {
-            Ok((value, code)) => {
+            Ok((value, code, _)) => {
                 let passed = value
                     .get("passed")
                     .and_then(Value::as_bool)

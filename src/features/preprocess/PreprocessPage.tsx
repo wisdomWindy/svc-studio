@@ -22,6 +22,8 @@ export function PreprocessPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [assertion, setAssertion] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activeJob, setActiveJob] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [useDiff, setUseDiff] = useState(false);
@@ -71,6 +73,49 @@ export function PreprocessPage() {
   }, [project?.id]);
 
 
+
+  // 轮询当前是否有正在跑的预处理，用于显示「取消」
+  useEffect(() => {
+    const pid = project?.id;
+    if (!pid) return;
+    let cancelled = false;
+    async function poll() {
+      try {
+        const jobs = await backend.listJobs(20);
+        if (cancelled) return;
+        const hit = jobs.find(
+          (j) =>
+            j.type === "preprocess" &&
+            (j.status === "running" || j.status === "queued") &&
+            (!j.projectId || j.projectId === pid),
+        );
+        setActiveJob(hit?.id ?? null);
+      } catch {
+        /* 忽略 */
+      }
+    }
+    void poll();
+    const timer = window.setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [project?.id]);
+
+  async function cancel() {
+    if (!activeJob) return;
+    setCancelling(true);
+    setError(null);
+    try {
+      await backend.cancelJob(activeJob);
+      setMessage("已取消预处理，worker 进程已终止");
+      setActiveJob(null);
+    } catch (e) {
+      setError(toErrorText(e));
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   async function start() {
     if (!project) return;
@@ -135,13 +180,19 @@ export function PreprocessPage() {
                 去修复数据集
               </Button>
             ) : (
-              <Button
-                variant="primary"
-                disabled={busy || gate?.trainable === false}
-                onClick={() => void start()}
-              >
-                {busy ? "提交中…" : "开始预处理"}
-              </Button>
+              activeJob ? (
+                <Button disabled={cancelling} onClick={() => void cancel()}>
+                  {cancelling ? "取消中…" : "取消预处理"}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  disabled={busy || gate?.trainable === false}
+                  onClick={() => void start()}
+                >
+                  {busy ? "提交中…" : "开始预处理"}
+                </Button>
+              )
             )}
           </div>
         }

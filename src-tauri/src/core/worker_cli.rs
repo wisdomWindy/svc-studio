@@ -116,32 +116,53 @@ fn _worker_paths_unused() -> (PathBuf, PathBuf) {
     (resolve_python(), resolve_worker_dir())
 }
 
-/// 不设超时的一次性 CLI：长任务（预处理/切片）跑完为止。
-/// 进程崩溃或被取消时仍会正常返回错误，只有「永远不返回」才会一直等。
-pub async fn run_cli_unbounded(args: &[&str]) -> AppResult<(Value, Option<i32>)> {
+/// 可取消的一次性 CLI：取消时杀掉整棵进程树。返回 (value, exit_code, cancelled)。
+pub async fn run_cli_cancellable(
+    args: &[&str],
+    cancel: tokio::sync::oneshot::Receiver<()>,
+) -> AppResult<(Value, Option<i32>, bool)> {
+    use std::process::Stdio;
+
     let python = resolve_python();
     let worker = resolve_worker_dir();
     let mut cmd = Command::new(&python);
     crate::core::proc::hide_console_async(&mut cmd);
     cmd.args(["-m", "svc_bridge"]);
     cmd.args(args);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     for (k, v) in worker_env(&worker) {
         cmd.env(k, v);
     }
-    let output = cmd.output().await.map_err(|e| {
+
+    let child = cmd.spawn().map_err(|e| {
         Box::new(AppError::new(
             "SVC-1001",
             "无法启动 worker",
             format!("{}: {e}", python.display()),
         ))
     })?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-        Box::new(AppError::new(
-            "SVC-1001",
-            "worker 输出无法解析",
-            format!("{e}; stderr={}", String::from_utf8_lossy(&output.stderr)),
-        ))
-    })?;
-    Ok((value, output.status.code()))
+    let pid = child.id();
+
+    tokio::select! {
+        out = child.wait_with_output() => {
+            let output = out.map_err(|e| {
+                Box::new(AppError::new("SVC-1001", "worker 运行失败", e.to_string()))
+            })?;
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
+                Box::new(AppError::new(
+                    "SVC-1001",
+                    "worker 输出无法解析",
+                    format!("{e}; stderr={}", String::from_utf8_lossy(&output.stderr)),
+                ))
+            })?;
+            Ok((value, output.status.code(), false))
+        }
+        _ = cancel => {
+            if let Some(pid) = pid {
+                crate::core::proc::kill_tree(pid);
+            }
+            Ok((Value::Null, None, true))
+        }
+    }
 }

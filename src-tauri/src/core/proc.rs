@@ -33,6 +33,17 @@ pub fn hide_console_async(cmd: &mut tokio::process::Command) {
     }
 }
 
+/// 杀掉进程及其子进程（Python 的 ProcessPool 子进程不会随父进程退出）。
+pub fn kill_tree(pid: u32) {
+    let mut cmd = std::process::Command::new("taskkill");
+    hide_console(&mut cmd);
+    let _ = cmd
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
