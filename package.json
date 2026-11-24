@@ -1,7 +1,7 @@
 {
   "name": "svc-studio",
   "private": true,
-  "version": "0.2.62",
+  "version": "0.2.63",
   "type": "module",
   "packageManager": "pnpm@11.28.5",
   "engines": {

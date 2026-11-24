@@ -24,6 +24,7 @@ SUFFIX_KINDS = [
     (".wav", "wav"),
     (".soft.pt", "soft"),
     (".f0.npy", "f0"),
+    (".spec.npy", "spec"),
     (".spec.pt", "spec"),
     (".vol.npy", "vol"),
     (".mel.npy", "mel"),
@@ -114,7 +115,7 @@ def count_products(dataset_dir: Path) -> Dict[str, int]:
 
 def diff_products(counts: Dict[str, int], use_diff: bool, vol_embedding: bool) -> List[Dict[str, Any]]:
     base = counts.get("wav", 0)
-    expected = {"soft": base, "f0": base, "spec": base}
+    expected = {"soft": base, "f0": base}
     if use_diff or vol_embedding:
         expected["vol"] = base
     if use_diff:

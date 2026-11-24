@@ -226,12 +226,13 @@ export function PreprocessPage() {
               {manifest ? (manifest.passed ? "一致" : `${diffs.length} 项差异`) : "还没有 manifest"}
             </span>
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-4">
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-3 lg:grid-cols-5">
             {([
               ["wav", "音频"],
               ["soft", "特征"],
               ["f0", "F0"],
               ["spec", "频谱"],
+              ["mel", "扩散数据"],
             ] as Array<[string, string]>).map(([key, label]) => (
               <div key={key} className="rounded border border-line/70 px-2 py-1.5">
                 <div className="text-[11px] text-muted">{label}</div>
@@ -247,6 +248,12 @@ export function PreprocessPage() {
                 </li>
               ))}
             </ul>
+          )}
+          {manifest && Number((counts as Record<string, unknown>).mel ?? 0) === 0 && (
+            <p className="mt-2 text-[12px] text-warn">
+              扩散数据未生成：勾选右侧「同时生成浅扩散产物（mel/vol）」后重新预处理，才能训练
+              浅扩散模型。
+            </p>
           )}
           {manifest?.failedStep && (
             <p className="mt-2 text-[12px] text-danger">失败步骤：{manifest.failedStep}</p>
