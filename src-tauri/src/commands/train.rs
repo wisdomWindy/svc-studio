@@ -446,11 +446,13 @@ pub(crate) fn train_start_impl(
             ),
         )));
     }
-    if should_block_start(is_smoke, wants_resume, legacy_checkpoints(&root)) {
+    // 扩散模型训练看的是 logs/diffusion，与主模型 checkpoint 无关，不该被拦住
+    let is_diffusion = matches!(kind.as_deref(), Some("diffusion"));
+    if !is_diffusion && should_block_start(is_smoke, wants_resume, legacy_checkpoints(&root)) {
         return Err(Box::new(AppError::new(
             "SVC-5003",
             "检测到已存在的 checkpoint",
-            "train.py 会自动续训。确认续训请点「继续训练」；要从零开始请先归档 logs/44k",
+            "train.py 会自动从最近 checkpoint 续训。确认续训请点「继续训练」；要从零开始请点「重新训练」",
         )));
     }
 
