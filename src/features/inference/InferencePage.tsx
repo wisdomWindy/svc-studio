@@ -55,17 +55,24 @@ export function InferencePage() {
   const [batchReport, setBatchReport] = useState<Record<string, unknown> | null>(null);
   const [selectedItem, setSelectedItem] = useState<number>(0);
 
+  // 只在项目切换时加载一次：过去把 modelId 放进依赖里，
+  // 每次选择模型都会重新拉列表并用默认模型覆盖选择（表现为闪一下又变回去）。
   const reload = useCallback(async () => {
     try {
       const list = await backend.listModels();
       setModels(list);
-      if (!modelId && list[0]) setModelId(list[0].id);
-      const current = await backend.defaultModel();
-      if (current) setModelId(current);
+      let preferred = list[0]?.id ?? "";
+      try {
+        const current = await backend.defaultModel();
+        if (current) preferred = current;
+      } catch {
+        /* 没有默认模型时用第一个 */
+      }
+      setModelId((prev) => (prev && list.some((m) => m.id === prev) ? prev : preferred));
     } catch {
       /* 浏览器预览下无后端 */
     }
-  }, [modelId, setModels]);
+  }, [setModels]);
 
   useEffect(() => {
     void reload();
