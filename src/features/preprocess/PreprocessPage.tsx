@@ -25,10 +25,6 @@ export function PreprocessPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [useDiff, setUseDiff] = useState(false);
-  const [procs, setProcs] = useState(1);
-  const [running, setRunning] = useState(false);
-  // 编码器会加载到 GPU，多进程会抢显存导致崩溃：固定 1
-  const maxProcs = 1;
   const [gate, setGate] = useState<{ trainable: boolean; blocking: string[] } | null>(null);
   const [qc, setQc] = useState<{ exists: boolean; passed: boolean; blocking: number } | null>(null);
 
@@ -75,32 +71,6 @@ export function PreprocessPage() {
   }, [project?.id]);
 
 
-  // 有 queued/running 的预处理任务时，滑块只读（新值对下一次生效）
-  useEffect(() => {
-    let cancelled = false;
-    async function poll() {
-      try {
-        const jobs = await backend.listJobs(50);
-        if (cancelled) return;
-        setRunning(
-          jobs.some(
-            (j) =>
-              j.type === "preprocess" &&
-              (j.status === "running" || j.status === "queued") &&
-              (!project || !j.projectId || j.projectId === project.id),
-          ),
-        );
-      } catch {
-        /* 忽略：拿不到列表不影响本地状态 */
-      }
-    }
-    void poll();
-    const timer = window.setInterval(poll, 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [project?.id]);
 
   async function start() {
     if (!project) return;
@@ -108,8 +78,7 @@ export function PreprocessPage() {
     setError(null);
     setMessage(null);
     try {
-      const job = await backend.preprocessStart(project.id, { useDiff, numProcesses: procs });
-      setRunning(true);
+      const job = await backend.preprocessStart(project.id, { useDiff, numProcesses: 1 });
       setMessage(`已提交任务 ${job}，可在「任务」页查看进度`);
     } catch (e) {
       setError(toErrorText(e));
@@ -197,35 +166,6 @@ export function PreprocessPage() {
       )}
       {message && <p className="mb-2 text-[12px] text-ok">{message}</p>}
       {error && <ErrorNotice error={error} compact />}
-
-      <div className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2.5">
-        <span className="text-[12px] font-medium">并行进程数</span>
-        <input
-          type="range"
-          min={1}
-          max={maxProcs}
-          step={1}
-          value={procs}
-          disabled={running}
-          onChange={(e) => {
-            const next = Number(e.target.value);
-            setProcs(next);
-            try {
-              window.localStorage?.setItem("svc.preprocess.procs", String(next));
-            } catch {
-              /* ignore */
-            }
-          }}
-          className={`w-56 ${running ? "opacity-40" : ""}`}
-          aria-label="预处理并行进程数"
-        />
-        <span className="w-6 text-center text-[13px] tabular">{procs}</span>
-        <span className="text-[11px] text-muted">
-          {running
-            ? "预处理进行中，改动将在下一次预处理时生效"
-            : "固定 1 个进程：语音编码器会加载到 GPU，多进程会抢显存导致预处理中途崩溃"}
-        </span>
-      </div>
 
       <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr]">
         <div className="rounded-lg border border-line bg-surface p-3.5">
