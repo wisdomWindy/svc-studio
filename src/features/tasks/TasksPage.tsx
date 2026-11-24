@@ -227,7 +227,7 @@ export function TasksPage() {
                               .catch((err) => setError(toErrorText(err)));
                           }}
                         >
-                          删除
+                          删除产物
                         </Button>
                       </>
                     )}
