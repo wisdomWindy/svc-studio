@@ -10,10 +10,15 @@ use crate::error::{AppError, AppResult};
 use crate::infra::db::now_iso;
 use crate::AppPaths;
 
+/// 任务列表被前端高频轮询（2.5s 一次）。同步命令会在主线程执行，
+/// 一旦 SQLite 被写锁占住就会把整个界面卡死（表现为「未响应」），因此放到阻塞线程池。
 #[tauri::command]
-pub fn list_jobs(state: State<'_, AppPaths>, limit: Option<i64>) -> AppResult<Vec<Job>> {
+pub async fn list_jobs(state: State<'_, AppPaths>, limit: Option<i64>) -> AppResult<Vec<Job>> {
     let limit = limit.unwrap_or(100).clamp(1, 500);
-    state.db.with(|c| jobs::list_recent(c, limit))
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.with(|c| jobs::list_recent(c, limit)))
+        .await
+        .map_err(|e| Box::new(AppError::new("SVC-7003", "任务列表读取失败", e.to_string())))?
 }
 
 #[tauri::command]
@@ -29,7 +34,7 @@ pub struct JobEventPage {
 }
 
 #[tauri::command]
-pub fn job_events(
+pub async fn job_events(
     state: State<'_, AppPaths>,
     job_id: String,
     after_seq: Option<i64>,
@@ -37,9 +42,13 @@ pub fn job_events(
 ) -> AppResult<JobEventPage> {
     let after = after_seq.unwrap_or(0);
     let limit = limit.unwrap_or(500).clamp(1, 2000);
-    let events = state
-        .db
-        .with(|c| jobs::list_events(c, &job_id, after, limit))?;
+    let db = state.db.clone();
+    let job = job_id.clone();
+    let events = tauri::async_runtime::spawn_blocking(move || {
+        db.with(|c| jobs::list_events(c, &job, after, limit))
+    })
+    .await
+    .map_err(|e| Box::new(AppError::new("SVC-7003", "事件读取失败", e.to_string())))??;
     let next_seq = events.last().map(|e| e.seq).unwrap_or(after);
     Ok(JobEventPage { events, next_seq })
 }
