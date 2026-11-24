@@ -246,7 +246,7 @@ export function DatasetPage() {
           checked={separateVocals}
           onChange={(e) => setSeparateVocals(e.target.checked)}
         />
-        自动分离人声（去伴奏 / 背景音，Demucs；约 1 分钟音频 10 秒）
+        自动分离人声（去伴奏 / 背景音，UVR5 MDX23C；失败自动回退 Demucs；约 1 分钟音频 15 秒）
       </label>
 
       {qcProgress && (

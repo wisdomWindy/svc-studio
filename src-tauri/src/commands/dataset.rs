@@ -535,7 +535,7 @@ pub async fn dataset_import(
 /// 启动数据集准备任务并立即返回；进度与结果通过 `dataset-progress` 事件回传。
 ///
 /// 流程：ffmpeg 转 44.1k 单声道 → 超过 15s 切 5–15s → 统一下响度。
-/// 分离（Demucs）+ 切片可能跑几分钟，远超 IPC 的 15 秒超时，所以不在命令里等待。
+/// 分离（UVR5 MDX23C，失败回退 Demucs）+ 切片可能跑几分钟，远超 IPC 的 15 秒超时，所以不在命令里等待。
 #[tauri::command]
 pub fn dataset_prepare(
     app: tauri::AppHandle,
@@ -615,7 +615,7 @@ async fn run_prepare(
 
     let mut sep_report = serde_json::Value::Null;
     if separate {
-        stage("separate", "分离人声（Demucs）…");
+        stage("separate", "分离人声（UVR5 MDX23C）…");
         sep_report = run_json(&python, &["dataset", "separate", "--root", &root_arg]).await?;
         let sep_failed = sep_report
             .get("failed")
