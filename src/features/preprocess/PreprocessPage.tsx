@@ -25,18 +25,10 @@ export function PreprocessPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [useDiff, setUseDiff] = useState(false);
-  const [procs, setProcs] = useState(() => {
-    // 测试环境可能没有 localStorage，读不到就用默认值
-    try {
-      const saved = Number(window.localStorage?.getItem("svc.preprocess.procs"));
-      if (Number.isFinite(saved) && saved >= 1) return saved;
-    } catch {
-      /* ignore */
-    }
-    return 2;
-  });
+  const [procs, setProcs] = useState(1);
   const [running, setRunning] = useState(false);
-  const maxProcs = Math.min(8, Math.max(1, navigator.hardwareConcurrency || 4));
+  // 编码器会加载到 GPU，多进程会抢显存导致崩溃：固定 1
+  const maxProcs = 1;
   const [gate, setGate] = useState<{ trainable: boolean; blocking: string[] } | null>(null);
   const [qc, setQc] = useState<{ exists: boolean; passed: boolean; blocking: number } | null>(null);
 
@@ -231,7 +223,7 @@ export function PreprocessPage() {
         <span className="text-[11px] text-muted">
           {running
             ? "预处理进行中，改动将在下一次预处理时生效"
-            : `范围 1–${maxProcs}（本机逻辑核心数，上限 8）；核心越多越快，但更吃内存`}
+            : "固定 1 个进程：语音编码器会加载到 GPU，多进程会抢显存导致预处理中途崩溃"}
         </span>
       </div>
 

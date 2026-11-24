@@ -170,7 +170,10 @@ pub(crate) fn preprocess_start_impl(
     let now = now_iso();
     let use_diff = use_diff.unwrap_or(false);
     let vol_aug = vol_aug.unwrap_or(false);
-    let procs = num_processes.unwrap_or(1).clamp(1, 8);
+    // 4.8.1 的 preprocess_hubert_f0 每个进程都会把语音编码器加载到 GPU，
+    // 进程数 >1 时显存被同时占用，实测会直接崩掉（产物只写出一部分）。
+    let procs = 1i64;
+    let _ = num_processes;
 
     state.db.with(|c| {
         jobs::create(
