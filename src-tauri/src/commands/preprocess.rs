@@ -10,7 +10,7 @@ use tauri::State;
 use crate::core::ids::{job_id, run_id};
 use crate::core::repo::{jobs, projects};
 use crate::core::runtime::resolve_upstream_dir;
-use crate::core::worker_cli::{run_cli, run_cli_with};
+use crate::core::worker_cli::run_cli;
 use crate::error::{AppError, AppResult};
 use crate::infra::db::{now_iso, Db};
 use crate::AppPaths;
@@ -73,31 +73,6 @@ fn record_failure(db: &Arc<Db>, job: &str, code: &str, message: &str) {
         )
     });
     let _ = db.with(|c| jobs::set_status(c, job, "failed", Some(code), &now));
-}
-
-/// 统计 dataset/44k 下的 wav 数量，用于估算预处理超时。
-fn count_dataset_clips(root: &std::path::Path) -> usize {
-    fn walk(dir: &std::path::Path, acc: &mut usize) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, acc);
-            } else if path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.eq_ignore_ascii_case("wav"))
-                .unwrap_or(false)
-            {
-                *acc += 1;
-            }
-        }
-    }
-    let mut count = 0;
-    walk(&root.join("dataset").join("44k"), &mut count);
-    count
 }
 
 #[tauri::command]
@@ -249,14 +224,8 @@ pub(crate) fn preprocess_start_impl(
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        // 预处理耗时随片段数线性增长：每个片段给 25s，另加 5 分钟固定开销
-        // resample 读的是 dataset_raw，hubert 读的是 dataset/44k：两边都要算，
-        // 否则「刚导入还没切完」时会按 1 个切片给预算（325s）而中途超时。
-        let clips = count_dataset_clips(&root_for_task).max(
-            crate::commands::dataset::count_audio_files(&root_for_task.join("dataset_raw")),
-        );
-        let budget = std::time::Duration::from_secs(600 + 30 * clips.max(1) as u64);
-        let result = run_cli_with(&arg_refs, budget).await;
+        // 预处理不做超时判定：跑多久等多久（进程崩溃仍会立刻返回错误）
+        let result = crate::core::worker_cli::run_cli_unbounded(&arg_refs).await;
         let now = now_iso();
 
         match result {
@@ -490,23 +459,4 @@ pub fn dataset_qc_verdict(state: State<'_, AppPaths>, project_id: String) -> App
             serde_json::json!({ "exists": true, "passed": passed, "blocking": blocking })
         }
     })
-}
-#[cfg(test)]
-mod timeout_budget_tests {
-    use super::count_dataset_clips;
-
-    #[test]
-    fn clip_count_scales_timeout() {
-        let dir = std::env::temp_dir().join(format!("svc-clips-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let spk = dir.join("dataset").join("44k").join("s");
-        std::fs::create_dir_all(&spk).unwrap();
-        for i in 0..7 {
-            std::fs::write(spk.join(format!("a{i}.wav")), b"x").unwrap();
-        }
-        std::fs::write(spk.join("skip.txt"), b"x").unwrap();
-
-        assert_eq!(count_dataset_clips(&dir), 7);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }
