@@ -1,7 +1,12 @@
-"""把任意格式的原始音频转换成 so-vits-svc 需要的 44.1k 单声道 wav。
+"""把任意格式的原始音频转换成 so-vits-svc 需要的 44.1k wav。
 
 上游 `resample.py` 只吃 wav，所以导入后的第一步是用 ffmpeg 解码成 wav；
 原始文件会被移到 `<dataset_raw>/_original/<说话人>/` 保留，不直接删除。
+
+**dataset_raw 里统一放 44.1k 单声道**（QC 与上游 resample.py 都按这个前提写）。
+原始文件不会丢：它们被移到 `<dataset_raw>/_original/<说话人>/`，分离阶段会优先用
+那份原文件（通常是立体声），这样分离器能拿到完整的空间信息，而 dataset_raw 的
+单声道约定也不会被破坏。
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ def needs_convert(path: Path) -> bool:
     return wav.sample_rate != TARGET_SR or wav.channels != 1
 
 
-def _convert_one(ffmpeg: str, src: Path, dest: Path) -> None:
+def _convert_one(ffmpeg: str, src: Path, dest: Path, channels: Optional[int] = 1) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     argv = [
         ffmpeg,
@@ -50,8 +55,10 @@ def _convert_one(ffmpeg: str, src: Path, dest: Path) -> None:
         "-y",
         "-i",
         str(src),
-        "-ac",
-        "1",
+    ]
+    if channels is not None:
+        argv += ["-ac", str(channels)]
+    argv += [
         "-ar",
         str(TARGET_SR),
         "-c:a",

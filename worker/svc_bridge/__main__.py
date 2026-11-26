@@ -52,7 +52,7 @@ def _cmd_rpc(job_id: str) -> int:
 
 
 def _add_dataset(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
@@ -61,6 +61,7 @@ def _add_dataset(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sample-rate", type=int, default=44100)
     parser.add_argument("--backup-dir", default="")
     parser.add_argument("--fade-ms", type=float, default=8.0)
+    parser.add_argument("--keep", type=float, default=0.85)
     parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
 
 

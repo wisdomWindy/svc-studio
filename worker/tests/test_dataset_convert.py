@@ -38,6 +38,27 @@ def test_needs_convert_false_for_44100_mono() -> None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_needs_convert_true_for_44100_stereo() -> None:
+    """dataset_raw 里必须是 44.1k 单声道；立体声原件由 _original/ 保留给分离器。"""
+    root = _dir()
+    try:
+        wav = root / "st.wav"
+        write_wav(wav, np.zeros(4410 * 2, dtype=np.float32), 44100, 2)
+        assert needs_convert(wav) is True
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_needs_convert_true_for_48000_mono() -> None:
+    root = _dir()
+    try:
+        wav = root / "c.wav"
+        write_wav(wav, np.zeros(4800, dtype=np.float32), 48000, 1)
+        assert needs_convert(wav) is True
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_needs_convert_true_for_48k_stereo() -> None:
     root = _dir()
     try:

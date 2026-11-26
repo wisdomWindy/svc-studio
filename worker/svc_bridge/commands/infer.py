@@ -311,9 +311,14 @@ def run_batch(
         accompaniment = None
         if separate:
             try:
-                stems = vocal_mix.separate_song(staged, batch / "stems", params.get("device", ""))
+                # 用**原始文件**分离：staged 已经把立体声降混成单声道，
+                # 而分离器是按立体声训练的，先降混会丢掉它区分人声/伴奏的空间信息。
+                stems = vocal_mix.separate_song(src, batch / "stems", params.get("device", ""))
                 if stems.get("ok"):
-                    source_for_infer = Path(stems["vocals"])
+                    vocals_path = Path(stems["vocals"])
+                    vocal_norm = batch / "inputs" / (src.stem + ".vocals.wav")
+                    normalize_input(vocals_path, vocal_norm)  # 分离后的人声再统一成 44.1k 单声道
+                    source_for_infer = vocal_norm
                     accompaniment = Path(stems["accompaniment"])
                     item["separated"] = True
             except Exception as exc:  # noqa: BLE001 - 分离失败就退回整段转换

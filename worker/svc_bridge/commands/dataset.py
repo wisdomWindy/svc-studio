@@ -521,7 +521,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="svc_bridge dataset")
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
@@ -530,6 +530,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--sample-rate", type=int, default=TARGET_SR)
     parser.add_argument("--backup-dir", default="")
     parser.add_argument("--fade-ms", type=float, default=8.0)
+    parser.add_argument("--keep", type=float, default=0.85)
     parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
     args = parser.parse_args(argv)
 
@@ -537,6 +538,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         result = scan(args.root)
     elif args.action == "prune-short":
         result = prune_short(args.root, 1.0)
+    elif args.action == "prune-quality":
+        from .dataset_quality import prune_quality_tree
+
+        result = prune_quality_tree(args.root, args.keep, args.backup_dir or None)
     elif args.action == "declick":
         from .dataset_repair import declick_tree
 

@@ -1,4 +1,4 @@
-﻿# 构建 GPU 运行时（Python 3.13 + torch 2.8 cu128 + fairseq-fixed）
+# 构建 GPU 运行时（Python 3.13 + torch 2.8 cu128 + fairseq-fixed）
 param([switch]$DryRun)
 
 $ErrorActionPreference = "Stop"
@@ -118,7 +118,8 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
     -i $pipIndex --trusted-host pypi.tuna.tsinghua.edu.cn `
     "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
     "matplotlib" "pandas" "loguru" `
-    "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich"
+    "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich" `
+    "beartype" "rotary-embedding-torch" "einops"
   if ($LASTEXITCODE -eq 0) { $depsOk = $true; break }
   Write-Host "    第 $attempt 次依赖安装失败（多为网络断流），$(20 * $attempt) 秒后重试"
   Start-Sleep -Seconds (20 * $attempt)
