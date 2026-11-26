@@ -8,6 +8,7 @@ so-vits-svc 会把整个输入当成人声来转换：直接喂整首歌，伴�
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -16,6 +17,11 @@ import numpy as np
 from .. import audio
 
 TARGET_SR = 44100
+
+
+def _log(msg: str) -> None:
+    """诊断信息一律走 stderr：stdout 是给主程序解析的 JSON，被日志污染会直接报 SVC-1001。"""
+    print(msg, file=sys.stderr)
 
 
 def _pick_device(requested: str = "") -> str:
@@ -83,7 +89,7 @@ def _build_roformer(model_name: str, model_kwargs: dict):
         try:
             module = importlib.import_module(module_name)
             cls = getattr(module, class_name)
-            print(f"[separate] RoFormer 实现：{module_name}")
+            _log(f"[separate] RoFormer 实现：{module_name}")
             break
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{module_name}: {exc}")
@@ -97,7 +103,7 @@ def _build_roformer(model_name: str, model_kwargs: dict):
         accepted = {p.name for p in params if p.name != "self"}
         dropped = sorted(set(model_kwargs) - accepted)
         if dropped:
-            print(f"[separate] RoFormer 配置里这些键被忽略：{dropped}")
+            _log(f"[separate] RoFormer 配置里这些键被忽略：{dropped}")
         kwargs = {k: v for k, v in model_kwargs.items() if k in accepted}
 
     # yaml 里 `!!python/tuple` 被剥掉后是 list，而实现用 beartype 校验 tuple[...] 会拒绝
@@ -214,23 +220,21 @@ def separate_song(src: Path, dest_dir: Path, device: str = "", model: str = "htd
             if rf is not None:
                 return rf
             if choice != "auto":
-                print("[separate] RoFormer 资源不全（权重 / 配置 / bs_roformer 包），继续回退")
+                _log("[separate] RoFormer 资源不全（权重 / 配置 / bs_roformer 包），继续回退")
         except Exception as exc:  # noqa: BLE001
-            print(f"[separate] RoFormer 失败，回退：{exc}")
-
+            _log(f"[separate] RoFormer 失败，回退：{exc}")
     if choice != "demucs":
         try:
             mdx_result = separate_song_mdx(src, dest_dir, device)
             if mdx_result is not None:
                 return mdx_result
             # 返回 None 表示权重/配置没装上，不会抛异常，所以这里必须显式提示
-            print(
+            _log(
                 "[separate] 找不到 MDX23C 权重或 mdx_model_data 配置，改用 Demucs；"
                 "分离质量会明显下降（UVR5 模型优先级更高）"
             )
         except Exception as exc:  # noqa: BLE001
-            print(f"[separate] MDX23C 失败，回退 Demucs：{exc}")
-
+            _log(f"[separate] MDX23C 失败，回退 Demucs：{exc}")
     from demucs.api import Separator
     from demucs.audio import save_audio
 

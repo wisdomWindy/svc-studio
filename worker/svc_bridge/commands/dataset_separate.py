@@ -65,7 +65,7 @@ def _ensure_pcm16(path: Path) -> None:
             tmp.replace(path)
             return
         except Exception as exc:  # noqa: BLE001
-            print(f"[separate] 转 16-bit 失败，尝试 ffmpeg：{exc}")
+            print(f"[separate] 转 16-bit 失败，尝试 ffmpeg：{exc}", file=sys.stderr)
 
     from .dataset_convert import _convert_one, find_ffmpeg
 
@@ -118,7 +118,9 @@ def separate_tree(root: str, device: str = "", model: str = "htdemucs") -> Dict[
             ext = src.suffix.lower()
             if ext not in AUDIO_EXTS and ext not in WAV_EXTS:
                 continue
-            if src.stem.endswith(".vocals"):
+            # 跳过所有已分离产物：`x.vocals.wav`（整段干声）与 `x.vocals_001.wav`（切片）。
+            # 否则对已经处理过的数据集再点一次「自动分离」，会把切片当成原曲重跑一遍。
+            if ".vocals" in src.stem:
                 continue
             dest = spk / f"{src.stem}.vocals.wav"
             if dest.exists():

@@ -25,6 +25,29 @@ fn command_with_env(python: &Path, worker_dir: &Path, args: &[&str]) -> Command 
     cmd
 }
 
+/// 从 worker 的 stdout 里取 JSON。
+///
+/// 正常情况下整份 stdout 就是一个 JSON 对象；但 worker 的第三方库（torch/librosa）偶尔
+/// 会往 stdout 打诊断信息，所以再退一步：从最后一行往前找第一行能解析成 JSON 的内容，
+/// 避免一条无关的日志把整个命令判成「输出无法解析」（SVC-1001）。
+fn parse_json_output(stdout: &str) -> Result<Value, serde_json::Error> {
+    match serde_json::from_str::<Value>(stdout.trim()) {
+        Ok(value) => Ok(value),
+        Err(first_err) => {
+            for line in stdout.lines().rev() {
+                let line = line.trim();
+                if !(line.starts_with('{') || line.starts_with('[')) {
+                    continue;
+                }
+                if let Ok(value) = serde_json::from_str::<Value>(line) {
+                    return Ok(value);
+                }
+            }
+            Err(first_err)
+        }
+    }
+}
+
 /// 等待子进程结束：跑多久等多久。
 async fn wait_output(python: &Path, mut cmd: Command) -> AppResult<std::process::Output> {
     cmd.output().await.map_err(|e| {
@@ -52,7 +75,7 @@ async fn run_json_impl(python: &Path, worker_dir: &Path, args: &[&str]) -> AppRe
         .collect();
 
     // qc 在存在阻断项时用非零码退出，但仍返回完整报告：先尝试解析，再看退出码。
-    match serde_json::from_str::<Value>(stdout.trim()) {
+    match parse_json_output(&stdout) {
         Ok(value) => Ok(value),
         Err(parse_err) => Err(Box::new(AppError::new(
             "SVC-1001",
@@ -71,7 +94,7 @@ pub async fn run_cli(args: &[&str]) -> AppResult<(Value, Option<i32>)> {
     let cmd = command_with_env(&python, &resolve_worker_dir(), args);
     let output = wait_output(&python, cmd).await?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
+    let value: Value = parse_json_output(&stdout).map_err(|e| {
         Box::new(AppError::new(
             "SVC-1001",
             "worker 输出无法解析",

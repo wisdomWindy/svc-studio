@@ -48,7 +48,8 @@ def _emit(log, msg: str) -> None:
     if log is not None and hasattr(log, "log"):
         log.log(msg)
     else:
-        print(msg)
+        # 走 stderr：stdout 要留给主程序解析的 JSON，不能被诊断信息污染
+        print(msg, file=sys.stderr)
 
 
 def _frames_to_stereo_ch_first_f32(data: np.ndarray, sr_src: int, target_sr: int) -> np.ndarray:
