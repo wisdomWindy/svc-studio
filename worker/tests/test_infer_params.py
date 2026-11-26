@@ -98,3 +98,15 @@ def test_input_is_not_mutated() -> None:
     before = deepcopy(payload)
     params.normalize(payload, **norm(encoder="whisper-ppg", material_type="singing"))
     assert payload == before
+
+
+def test_none_predictor_is_kept_and_warned() -> None:
+    result = params.normalize({"f0Predictor": "none"}, **norm())
+    assert result["effective"]["f0Predictor"] == "none"
+    assert any(w["code"] == "SVC-6011" for w in result["warnings"])
+    assert result["blocking"] == []
+
+
+def test_unknown_predictor_falls_back_to_model_default() -> None:
+    result = params.normalize({"f0Predictor": "bogus"}, **norm())
+    assert result["effective"]["f0Predictor"] is None

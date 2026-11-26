@@ -114,6 +114,10 @@ def get_f0_predictor(f0_predictor,hop_length,sampling_rate,**kargs):
     elif f0_predictor == "fcpe":
         from modules.F0Predictor.FCPEF0Predictor import FCPEF0Predictor
         f0_predictor_object = FCPEF0Predictor(hop_length=hop_length,sampling_rate=sampling_rate,dtype=torch.float32 ,device=kargs["device"],threshold=kargs["threshold"])
+    elif f0_predictor == "none":
+        # 不使用 F0 预测器：恒定音高 + 全清音，跳过音高提取
+        from modules.F0Predictor.ConstantF0Predictor import ConstantF0Predictor
+        f0_predictor_object = ConstantF0Predictor(hop_length=hop_length,sampling_rate=sampling_rate)
     else:
         raise Exception("Unknown f0 predictor")
     return f0_predictor_object

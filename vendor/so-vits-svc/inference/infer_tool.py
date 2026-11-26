@@ -209,6 +209,10 @@ class Svc(object):
             self.f0_predictor_object = utils.get_f0_predictor(f0_predictor,hop_length=self.hop_size,sampling_rate=self.target_sample,device=self.dev,threshold=cr_threshold)
         f0, uv = self.f0_predictor_object.compute_f0_uv(wav)
 
+        # none 模式 f0 恒为 0，若继续走“无声音”判定会误报 No voice detected
+        if f0_predictor == "none":
+            f0_filter = False
+
         if f0_filter and sum(f0) == 0:
             raise F0FilterException("No voice detected")
         f0 = torch.FloatTensor(f0).to(self.dev)

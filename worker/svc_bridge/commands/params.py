@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 WHISPER_ENCODERS = {"whisper-ppg", "whisper-ppg-large"}
-F0_PREDICTORS = {"crepe", "pm", "dio", "harvest", "rmvpe", "fcpe"}
+F0_PREDICTORS = {"crepe", "pm", "dio", "harvest", "rmvpe", "fcpe", "none"}
 
 DEFAULTS: Dict[str, Any] = {
     "trans": 0,
@@ -54,6 +54,17 @@ def normalize(
 
     if effective.get("f0Predictor") not in F0_PREDICTORS:
         effective["f0Predictor"] = None  # 交给调用方用训练时的值填充
+
+    # none = 不跑 F0 预测器：音高条件置零，只保留音色（歌声会失去旋律）
+    if effective.get("f0Predictor") == "none":
+        warnings.append(
+            _issue(
+                "SVC-6011",
+                "f0Predictor",
+                "不使用 F0 预测器：音高条件置零，只保留音色",
+                "适合念白/无旋律素材；歌声会明显跑调",
+            )
+        )
 
     # whisper 系列：切片与交叉淡入必须固定，否则上游无法正常推理
     if encoder in WHISPER_ENCODERS:

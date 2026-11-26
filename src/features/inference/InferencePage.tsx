@@ -9,7 +9,7 @@ import { useActiveProject, useAppStore } from "@/lib/store";
 import { statusLabel } from "@/lib/format";
 import { toErrorText } from "@/lib/errors";
 
-const F0 = ["rmvpe", "fcpe", "crepe", "harvest", "dio", "pm"];
+const F0 = ["rmvpe", "fcpe", "crepe", "harvest", "dio", "pm", "none"];
 
 export interface AdvParams {
   noiseScale: number;
@@ -404,10 +404,15 @@ export function InferencePage() {
             >
               {F0.map((v) => (
                 <option key={v} value={v}>
-                  {v}
+                  {v === "none" ? "none（不使用 F0 预测器）" : v}
                 </option>
               ))}
             </select>
+            {f0 === "none" && (
+              <p className="mt-1 text-[11px] text-warn">
+                音高条件置零，只保留音色：念白可用，歌声会失去旋律。
+              </p>
+            )}
           </label>
           {project.materialType === "speech" && (
             <label className="mt-2 block text-[12px]">
