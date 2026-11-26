@@ -14,19 +14,15 @@ use crate::core::model::import::{finalize, plan_upload, slug_for, stage_copy, st
 use crate::core::models::ModelCard;
 use crate::core::repo::models;
 use crate::core::runtime::resolve_worker_dir;
-use crate::core::worker_cli::run_json_with;
+use crate::core::worker_cli::run_json;
 use crate::error::{AppError, AppResult};
 use crate::infra::db::now_iso;
 use crate::infra::fs::sha256_file;
 use crate::AppPaths;
 
-const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
 pub async fn check_remote(python: &Path, model: &Path, config: &Path) -> AppResult<Value> {
-    let worker = resolve_worker_dir();
-    run_json_with(
+    run_json(
         python,
-        &worker,
         &[
             "model",
             "check",
@@ -35,7 +31,6 @@ pub async fn check_remote(python: &Path, model: &Path, config: &Path) -> AppResu
             "--config",
             &config.to_string_lossy(),
         ],
-        CHECK_TIMEOUT,
     )
     .await
 }

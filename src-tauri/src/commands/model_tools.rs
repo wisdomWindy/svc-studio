@@ -11,14 +11,12 @@ use tauri::State;
 
 use crate::core::model::import::slug_for;
 use crate::core::repo::models;
-use crate::core::runtime::{resolve_upstream_dir, resolve_worker_dir};
-use crate::core::worker_cli::run_json_with;
+use crate::core::runtime::resolve_upstream_dir;
+use crate::core::worker_cli::run_json;
 use crate::error::{AppError, AppResult};
 use crate::infra::db::now_iso;
 use crate::infra::fs::sha256_file;
 use crate::AppPaths;
-
-const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
 fn model_or_err(state: &AppPaths, id: &str) -> AppResult<crate::core::models::ModelCard> {
     state
@@ -70,13 +68,8 @@ pub async fn model_compress(
         args.push("--half".to_string());
     }
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let result = run_json_with(
-        &crate::commands::settings::python_for_state(&state)?,
-        &resolve_worker_dir(),
-        &refs,
-        TOOL_TIMEOUT,
-    )
-    .await?;
+    // 不设超时：转换/压缩大模型在慢机器上可能要十几分钟
+    let result = run_json(&crate::commands::settings::python_for_state(&state)?, &refs).await?;
 
     if result.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(Box::new(AppError::new(
@@ -145,13 +138,7 @@ pub async fn model_onnx(state: State<'_, AppPaths>, model_id: String) -> AppResu
         "--name",
         &name,
     ];
-    let result = run_json_with(
-        &crate::commands::settings::python_for_state(&state)?,
-        &resolve_worker_dir(),
-        &args,
-        TOOL_TIMEOUT,
-    )
-    .await?;
+    let result = run_json(&crate::commands::settings::python_for_state(&state)?, &args).await?;
     Ok(result)
 }
 
@@ -213,11 +200,9 @@ pub async fn mix_preview(
         })?,
     )?;
 
-    let result = run_json_with(
+    let result = run_json(
         &crate::commands::settings::python_for_state(&state)?,
-        &resolve_worker_dir(),
         &["mix", "--input", &tmp.to_string_lossy()],
-        std::time::Duration::from_secs(60),
     )
     .await;
     let _ = std::fs::remove_file(&tmp);

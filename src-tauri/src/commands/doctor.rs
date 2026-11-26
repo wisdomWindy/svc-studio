@@ -3,7 +3,6 @@
 //! doctor 是一次性 CLI（单 JSON 对象），不走进程事件协议——它必须在 torch 都不可用时也能出结果。
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -96,22 +95,14 @@ pub async fn run_doctor(
         cmd.env(k, v);
     }
 
-    let output = tokio::time::timeout(Duration::from_secs(30), cmd.output())
-        .await
-        .map_err(|_| {
-            Box::new(AppError::new(
-                "SVC-1001",
-                "环境自检超时",
-                "30 秒内没有返回结果",
-            ))
-        })?
-        .map_err(|e| {
-            Box::new(AppError::new(
-                "SVC-1001",
-                "无法启动 Python 运行时",
-                format!("{}: {e}", python.display()),
-            ))
-        })?;
+    // 不设超时：慢机器/冷启动时第一次 import torch 可能要几十秒，30s 上限会误报「环境自检超时」
+    let output = cmd.output().await.map_err(|e| {
+        Box::new(AppError::new(
+            "SVC-1001",
+            "无法启动 Python 运行时",
+            format!("{}: {e}", python.display()),
+        ))
+    })?;
 
     if !output.status.success() {
         return Err(Box::new(AppError::new(

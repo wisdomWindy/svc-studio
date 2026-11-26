@@ -755,13 +755,12 @@ pub async fn train_aux(
 
     let upstream = resolve_upstream_dir();
     let python = crate::commands::settings::python_for_state(&state)?;
-    let worker_dir = resolve_worker_dir();
     let root_str = root.to_string_lossy().to_string();
     let upstream_str = upstream.to_string_lossy().to_string();
 
-    crate::core::worker_cli::run_json_with(
+    // 不设超时：聚类/索引等后处理耗时随数据量增长
+    crate::core::worker_cli::run_json(
         &python,
-        &worker_dir,
         &[
             "aux",
             "--project",
@@ -771,7 +770,6 @@ pub async fn train_aux(
             "--kind",
             &kind,
         ],
-        Duration::from_secs(1800),
     )
     .await
 }

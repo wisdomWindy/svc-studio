@@ -88,29 +88,6 @@ fn dataset_raw(root: &Path) -> PathBuf {
     root.join("dataset_raw")
 }
 
-/// 统计目录下的音频文件数（只用于估算超时）。
-pub(crate) fn count_audio_files(dir: &std::path::Path) -> usize {
-    const EXTS: [&str; 8] = ["wav", "flac", "mp3", "m4a", "ogg", "aac", "wma", "opus"];
-    fn walk(dir: &std::path::Path, acc: &mut usize) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, acc);
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if EXTS.iter().any(|e| e.eq_ignore_ascii_case(ext)) {
-                    *acc += 1;
-                }
-            }
-        }
-    }
-    let mut count = 0;
-    walk(dir, &mut count);
-    count
-}
-
 #[tauri::command]
 pub async fn dataset_scan(
     state: State<'_, AppPaths>,
@@ -119,12 +96,10 @@ pub async fn dataset_scan(
     let python = crate::commands::settings::python_for_state(&state)?;
     let root = project_root(&state, &project_id)?;
     let dir = dataset_raw(&root);
-    let budget = std::time::Duration::from_secs(30 + 2 * count_audio_files(&dir).max(1) as u64);
-    crate::core::worker_cli::run_json_with(
+    // 不设超时：扫描耗时随文件数增长，慢盘/大库上固定上限会误杀
+    crate::core::worker_cli::run_json(
         &python,
-        &crate::core::runtime::resolve_worker_dir(),
         &["dataset", "scan", "--root", &dir.to_string_lossy()],
-        budget,
     )
     .await
 }
