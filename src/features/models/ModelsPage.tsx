@@ -96,7 +96,7 @@ export function ModelsPage() {
   }
 
   async function remove(model: ModelCard) {
-    if (!window.confirm(`删除模型「${model.name}」？历史批次不会删除。`)) return;
+    if (!window.confirm(`删除模型「${model.name}」？该模型的推理历史记录会一并移除，已生成的音频文件保留。`)) return;
     try {
       await backend.deleteModel(model.id);
       await reload();

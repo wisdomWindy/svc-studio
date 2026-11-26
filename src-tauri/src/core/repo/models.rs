@@ -150,8 +150,16 @@ pub fn set_status(conn: &Connection, id: &str, status: &str) -> AppResult<()> {
 }
 
 /// 删除前必须由调用方做占用检查（默认模型 / 运行中推理）。
+///
+/// `inference_runs.model_id` 是 `ON DELETE RESTRICT`：只要这个模型被任何一次推理用过，
+/// 直接删就会抛 FOREIGN KEY constraint failed（用户看到的是 SVC-7003「数据库操作失败」）。
+/// 历史推理记录不应该永久锁死模型，所以这里在同一个事务里先清掉引用行再删模型；
+/// 推理产出的音频与报告在 `<项目>/outputs/` 下，不受影响。
 pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
-    let n = conn.execute("DELETE FROM models WHERE id = ?1", [id])?;
+    let tx = conn.unchecked_transaction()?;
+    // inference_items 通过 ON DELETE CASCADE 跟着 inference_runs 一起走
+    tx.execute("DELETE FROM inference_runs WHERE model_id = ?1", [id])?;
+    let n = tx.execute("DELETE FROM models WHERE id = ?1", [id])?;
     if n == 0 {
         return Err(Box::new(AppError::new(
             "SVC-7004",
@@ -159,6 +167,7 @@ pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
             id.to_string(),
         )));
     }
+    tx.commit()?;
     Ok(())
 }
 
@@ -272,6 +281,41 @@ mod tests {
             insert(c, &now_iso(), &newm("mdl_2", "s2"))?;
             set_status(c, "mdl_2", "missing")?;
             assert_eq!(list(c)?.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn delete_removes_inference_runs_instead_of_hitting_foreign_key() {
+        // 复现：模型被一次推理用过 → inference_runs.model_id 是 ON DELETE RESTRICT，
+        // 旧实现直接 DELETE 会报 "FOREIGN KEY constraint failed"，界面显示 SVC-7003。
+        let (_d, db) = fixture();
+        db.with(|c| {
+            let now = now_iso();
+            c.execute(
+                "INSERT INTO projects (id,name,slug,root_path,speech_encoder,f0_predictor,material_type,status,created_at,updated_at) \
+                 VALUES ('prj_1','p','p','C:/p','vec768l12','rmvpe','singing','active',?1,?1)",
+                [&now],
+            )?;
+            let mut m = newm("mdl_1", "sha-1");
+            m.project_id = Some("prj_1");
+            insert(c, &now, &m)?;
+            c.execute(
+                "INSERT INTO inference_runs (id,project_id,model_id,batch_name,model_scope,params_json,params_hash,status,created_at) \
+                 VALUES ('run_1','prj_1','mdl_1','batch','project','{}','h','succeeded',?1)",
+                [&now],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        db.with(|c| {
+            delete(c, "mdl_1")?;
+            let models: i64 = c.query_row("SELECT count(*) FROM models", [], |r| r.get(0))?;
+            let runs: i64 = c.query_row("SELECT count(*) FROM inference_runs", [], |r| r.get(0))?;
+            assert_eq!(models, 0, "模型应被删除");
+            assert_eq!(runs, 0, "引用该模型的推理记录应一并移除，而不是报外键错");
             Ok(())
         })
         .unwrap();
