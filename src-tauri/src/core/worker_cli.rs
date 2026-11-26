@@ -159,3 +159,38 @@ pub async fn run_cli_cancellable(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_plain_json_stdout() {
+        let out = r#"{"schema":"svcstudio.dataset.scan/1","fileCount":616}"#;
+        let v = parse_json_output(out).expect("纯 JSON 应解析成功");
+        assert_eq!(v["fileCount"], 616);
+    }
+
+    #[test]
+    fn tolerates_log_lines_before_the_json() {
+        // 0.3.0 的故障形态：worker 把诊断打到 stdout，JSON 排在后面
+        let out = "[separate] RoFormer 实现：bs_roformer_module\n\
+                   [separate] RoFormer 配置里这些键被忽略：['flash_attn']\n\
+                   {\"schema\":\"svcstudio.dataset.separate/1\",\"ok\":true}\n";
+        let v = parse_json_output(out).expect("日志在前也必须能找到 JSON");
+        assert_eq!(v["ok"], true);
+    }
+
+    #[test]
+    fn tolerates_json_wrapped_by_warnings() {
+        let out = "Warning: something\n{\"schema\":\"x\",\"ok\":true}\nTraceback tail\n";
+        let v = parse_json_output(out).expect("前后都有噪声也要解析成功");
+        assert_eq!(v["schema"], "x");
+    }
+
+    #[test]
+    fn fails_when_there_is_no_json_at_all() {
+        let err = parse_json_output("totally not json\nstill not").unwrap_err();
+        assert!(format!("{err}").contains("expected value") || format!("{err}").contains("line"));
+    }
+}

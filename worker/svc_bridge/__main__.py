@@ -182,8 +182,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             str(args.min_interval_ms),
             "--sample-rate",
             str(args.sample_rate),
+            # 这几个必须一起转发：少了就会静默退回默认值（曾导致 --keep 1.0 被忽略、
+            # prune-quality 仍剔除 15% 的文件）
+            "--keep",
+            str(args.keep),
+            "--fade-ms",
+            str(args.fade_ms),
             *(["--events"] if getattr(args, "events", False) else []),
         ]
+        if args.backup_dir:
+            dataset_argv.extend(["--backup-dir", str(args.backup_dir)])
         if args.out:
             dataset_argv.extend(["--out", str(args.out)])
         return dataset.main(dataset_argv)
