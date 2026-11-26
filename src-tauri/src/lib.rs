@@ -318,7 +318,6 @@ pub fn run() {
             commands::jobs::cancel_job,
             commands::jobs::job_open_output,
             commands::jobs::job_open_folder,
-            commands::jobs::job_delete_output,
             commands::job_retry::retry_job,
             commands::models::list_models,
             commands::models::get_model,

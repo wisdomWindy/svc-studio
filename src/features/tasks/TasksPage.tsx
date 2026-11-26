@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
@@ -22,15 +22,9 @@ const LEVEL_TONE: Record<string, string> = {
   debug: "text-muted",
 };
 
-/** 产物已被删除的任务不再显示「打开文件夹 / 删除」。 */
-function hasDeletedOutput(job: Job): boolean {
-  if (!job.payloadJson) return false;
-  try {
-    const payload = JSON.parse(job.payloadJson) as { outputDeleted?: boolean };
-    return payload.outputDeleted === true;
-  } catch {
-    return false;
-  }
+/** 运行中/排队中的任务不允许删除，也不允许勾选。 */
+function isActive(job: Job): boolean {
+  return job.status === "running" || job.status === "queued";
 }
 
 export function TasksPage() {
@@ -41,15 +35,32 @@ export function TasksPage() {
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 轮询与删除/重试都会发 list_jobs；只认最新一次请求，避免旧快照把已删的行刷回界面。 */
+  const seq = useRef(0);
+  const projectId = project?.id ?? null;
+
+  /**
+   * 拉一次任务列表并按当前项目过滤。
+   * 返回 null 表示这份结果已被更晚发出的请求取代，调用方应丢弃它。
+   */
+  const refresh = useCallback(async (): Promise<Job[] | null> => {
+    const mine = ++seq.current;
+    const all = await backend.listJobs(100);
+    if (mine !== seq.current) return null;
+    const list = projectId ? all.filter((j) => j.projectId === projectId) : all;
+    setJobs(list);
+    return list;
+  }, [projectId]);
 
   useEffect(() => {
     async function tick() {
       try {
-        const all = await backend.listJobs(100);
-        const list = project ? all.filter((j) => j.projectId === project.id) : all;
-        setJobs(list);
-        const running = list.find((j) => j.status === "running" || j.status === "queued");
-        if (!selected && running) setSelected(running.id);
+        const list = await refresh();
+        if (!list) return;
+        // 选中的任务被删掉后自动落回运行中的任务，不指向已不存在的记录
+        setSelected((prev) =>
+          prev && list.some((j) => j.id === prev) ? prev : (list.find(isActive)?.id ?? null),
+        );
       } catch (e) {
         setError(toErrorText(e));
       }
@@ -59,11 +70,15 @@ export function TasksPage() {
     return () => {
       if (timer.current) clearInterval(timer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, project?.id]);
+  }, [refresh]);
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      // 选中项被清除（含删除后）时同步清空日志：否则已删任务的记录会留在右侧面板上，
+      // 看起来像「删掉的记录又出现了」。
+      setEvents([]);
+      return;
+    }
     let alive = true;
     async function load() {
       try {
@@ -81,25 +96,41 @@ export function TasksPage() {
     };
   }, [selected]);
 
-
-  const isActive = (job: Job) => job.status === "running" || job.status === "queued";
   const deletable = jobs.filter((j) => !isActive(j));
 
   async function removeJobs(ids: string[]) {
     if (ids.length === 0) return;
-    const notAllowed = ids.filter((id) => jobs.find((j) => j.id === id && isActive(j)));
-    if (notAllowed.length > 0) {
+    const targets = jobs.filter((j) => ids.includes(j.id));
+    if (targets.some(isActive)) {
       setError("运行中的任务不能删除，请先取消");
       return;
     }
+    // 删除推理任务会连音频与报告一起删掉，先确认；纯记录删除没有这一步
+    if (targets.some((j) => j.type === "inference")) {
+      const tip =
+        ids.length === 1
+          ? "删除这条推理任务？该次推理的音频与报告会一并删除，不可恢复。"
+          : `删除选中的 ${ids.length} 条任务？其中推理任务的音频与报告会一并删除，不可恢复。`;
+      if (!window.confirm(tip)) return;
+    }
     try {
       const res = await backend.deleteJobs(ids);
+      // 运行中被拒、产物删不掉的都保留在列表里，只有真正删掉的才本地移除
+      const kept = new Set([...res.refused, ...res.outputFailed]);
+      const gone = ids.filter((id) => !kept.has(id));
       setError(null);
-      setChecked((prev) => prev.filter((id) => !ids.includes(id)));
-      if (selected && ids.includes(selected)) setSelected(null);
-      void backend.listJobs(100).then(setJobs).catch(() => undefined);
-      if (res.refused.length > 0) {
+      setJobs((prev) => prev.filter((j) => !gone.includes(j.id)));
+      setChecked((prev) => prev.filter((id) => !gone.includes(id)));
+      if (selected && gone.includes(selected)) setSelected(null);
+      const list = await refresh();
+      if (list && res.outputFailed.length > 0) {
+        setError(
+          `有 ${res.outputFailed.length} 个任务的产物删不掉（可能被占用），记录已保留，请关闭占用后重试`,
+        );
+      } else if (list && res.refused.length > 0) {
         setError(`有 ${res.refused.length} 个运行中的任务未删除`);
+      } else if (list && res.deleted === 0) {
+        setError("任务已不存在，列表已同步");
       }
     } catch (e) {
       setError(toErrorText(e));
@@ -195,41 +226,20 @@ export function TasksPage() {
                   <td className="px-3 py-1.5 tabular">{percent(job.progress)}</td>
                   <td className="px-3 py-1.5 tabular text-muted">{formatClock(job.startedAt)}</td>
                   <td className="px-3 py-1.5 text-right">
-                    {job.status === "succeeded" &&
-                      job.type === "inference" &&
-                      !hasDeletedOutput(job) && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void backend
-                              .jobOpenFolder(job.id)
-                              .then(() => setError(null))
-                              .catch((err) => setError(toErrorText(err)));
-                          }}
-                        >
-                          打开文件夹
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!window.confirm("删除这次推理的音频与报告？不可恢复。")) return;
-                            void backend
-                              .jobDeleteOutput(job.id)
-                              .then(() => {
-                                setError(null);
-                                void backend.listJobs(100).then(setJobs).catch(() => undefined);
-                              })
-                              .catch((err) => setError(toErrorText(err)));
-                          }}
-                        >
-                          删除产物
-                        </Button>
-                      </>
+                    {job.status === "succeeded" && job.type === "inference" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void backend
+                            .jobOpenFolder(job.id)
+                            .then(() => setError(null))
+                            .catch((err) => setError(toErrorText(err)));
+                        }}
+                      >
+                        打开文件夹
+                      </Button>
                     )}
                     {(job.status === "running" || job.status === "queued") && (
                       <Button
@@ -253,7 +263,7 @@ export function TasksPage() {
                             .retryJob(job.id)
                             .then(() => {
                               setError(null);
-                              void backend.listJobs(100).then(setJobs).catch(() => undefined);
+                              void refresh().catch(() => undefined);
                             })
                             .catch((err) =>
                               setError(toErrorText(err)),

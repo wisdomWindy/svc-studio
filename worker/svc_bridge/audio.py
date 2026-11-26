@@ -155,6 +155,53 @@ def resample_linear(samples: array.array, src_rate: int, dst_rate: int) -> array
     return out
 
 
+def fade_edges(samples: array.array, sample_rate: int, fade_ms: float = 8.0) -> array.array:
+    """首尾各做一段余弦淡入淡出，消掉硬切产生的"咔哒"爆音。
+
+    8ms 在听感上看不出起音变化，但足以让波形从 0 平滑进入/退出，避免切口处的
+    阶跃被扬声器还原成爆音。内部样本一个不动。
+    """
+    n = len(samples)
+    fade = min(int(sample_rate * fade_ms / 1000.0), n // 2)
+    if n == 0 or fade <= 0:
+        return samples
+    out = array.array("h", samples)
+    for i in range(fade):
+        gain = 0.5 - 0.5 * math.cos(math.pi * (i + 0.5) / fade)
+        out[i] = int(out[i] * gain)
+        out[n - 1 - i] = int(out[n - 1 - i] * gain)
+    return out
+
+
+def remove_dc(samples: array.array, min_offset: float = 0.5) -> array.array:
+    """去掉直流偏置（低于 0.5 LSB 的偏移忽略，避免无谓改动）。"""
+    if not samples:
+        return samples
+    mean = sum(samples) / float(len(samples))
+    if abs(mean) < min_offset:
+        return samples
+    return array.array("h", (max(-32768, min(32767, int(s - mean))) for s in samples))
+
+
+def find_quietest_cut(
+    frames: List[float], start_frame: int, min_frames: int, max_frames: int, frame_len: int
+) -> Tuple[int, int]:
+    """在 [start+min, max] 内挑能量最低的一帧作为切点。
+
+    优先落在静音帧里；整段都没有静音时退而取窗口内最安静的帧——比"硬切在固定
+    时长处"爆音小得多，也不会一刀切在元音中间。
+    """
+    lower = min(start_frame + min_frames, len(frames))
+    upper = min(max_frames, len(frames))
+    if upper <= lower:
+        return upper, upper * frame_len
+    window = range(lower, upper)
+    quiet = [i for i in window if frames[i] < SILENCE_LINEAR]
+    pool = quiet if quiet else list(window)
+    best = min(pool, key=lambda i: frames[i])
+    return best, best * frame_len
+
+
 def to_mono_if_needed(wav: Wav) -> array.array:
     return wav.mono() if wav.channels > 1 else wav.samples
 

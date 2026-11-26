@@ -45,13 +45,28 @@ def separate_song(src: Path, dest_dir: Path, device: str = "", model: str = "htd
             mdx_result = separate_song_mdx(src, dest_dir, device)
             if mdx_result is not None:
                 return mdx_result
+            # 返回 None 表示权重/配置没装上，不会抛异常，所以这里必须显式提示
+            print(
+                "[separate] 找不到 MDX23C 权重或 mdx_model_data 配置，改用 Demucs；"
+                "分离质量会明显下降（UVR5 模型优先级更高）"
+            )
         except Exception as exc:  # noqa: BLE001
             print(f"[separate] MDX23C 失败，回退 Demucs：{exc}")
 
     from demucs.api import Separator
     from demucs.audio import save_audio
 
-    separator = Separator(model=model, device=_pick_device(device), progress=False)
+    # shifts>1 与更大的 overlap 能显著减少分离伪影（代价是更慢），可用环境变量调整
+    shifts = int(_os.environ.get("SVCSTUDIO_DEMUCS_SHIFTS", "2"))
+    overlap = float(_os.environ.get("SVCSTUDIO_DEMUCS_OVERLAP", "0.75"))
+    model = _os.environ.get("SVCSTUDIO_DEMUCS_MODEL", model)
+    separator = Separator(
+        model=model,
+        device=_pick_device(device),
+        shifts=max(1, shifts),
+        overlap=min(max(overlap, 0.1), 0.9),
+        progress=False,
+    )
     _origin, stems = separator.separate_audio_file(str(src))
     save_audio(stems["vocals"], str(vocals), separator.samplerate)
 
@@ -70,7 +85,13 @@ def separate_song(src: Path, dest_dir: Path, device: str = "", model: str = "htd
     import torch
 
     save(torch.from_numpy(other), str(accomp), separator.samplerate)
-    return {"ok": True, "vocals": vocals, "accompaniment": accomp, "cached": False}
+    return {
+        "ok": True,
+        "vocals": vocals,
+        "accompaniment": accomp,
+        "cached": False,
+        "engine": f"demucs:{model}",
+    }
 
 
 

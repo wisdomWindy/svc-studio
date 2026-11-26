@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Callable
@@ -20,7 +21,8 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 from .. import exit_codes
 from ..audio import (
     clipping_ratio,
-    find_cut_point,
+    fade_edges,
+    find_quietest_cut,
     frame_rms,
     peak_dbfs,
     protect_peak,
@@ -361,7 +363,8 @@ def _slice_one(path: Path, out_dir: Path, quarantine: Path, min_s: float, max_s:
 
     min_frames = max(1, int(min_s * 1000 / 10))
     max_frames = max(min_frames + 1, int(max_s * 1000 / 10))
-    target_frames = min_frames
+    # 在 [min_s, min_s+1.5s] 里找最安静的位置下刀：找不到静音也不会硬切在元音中间
+    extra_frames = int(1500 / 10)
 
     produced: List[str] = []
     start_frame = 0
@@ -372,12 +375,15 @@ def _slice_one(path: Path, out_dir: Path, quarantine: Path, min_s: float, max_s:
             end_sample = len(samples)
             cut_frame = len(frames)
         else:
-            cut_frame, end_sample = find_cut_point(
-                frames, start_frame, min_frames, start_frame + target_frames, frame_len
+            search_hi = min(start_frame + min_frames + extra_frames, start_frame + max_frames)
+            cut_frame, end_sample = find_quietest_cut(
+                frames, start_frame, min_frames, search_hi, frame_len
             )
         chunk = samples[start_frame * frame_len : end_sample]
         if len(chunk) / mono_rate < 0.3:
             break
+        # 切口两侧做 8ms 淡入淡出：硬切会在每个分片首尾留下一声"咔哒"
+        chunk = fade_edges(chunk, mono_rate)
         out_path = out_dir / f"{path.stem}_{index:03d}.wav"
         write_wav(out_path, chunk, mono_rate)
         produced.append(out_path.name)
@@ -431,12 +437,55 @@ def slice_tree(
     }
 
 
+def _resample_with_ffmpeg(path: Path, target_sr: int) -> bool:
+    """用 ffmpeg 就地重采样（swr 带抗混叠）。
+
+    线性插值器不做低通，降采样会把高频折返成金属味/"电音"；有 ffmpeg 时一律走它。
+    没有 ffmpeg 或转换失败时返回 False，调用方退回线性插值。
+    """
+    from ..procwin import no_window_kwargs
+    from .dataset_convert import find_ffmpeg
+
+    ffmpeg = find_ffmpeg()
+    if ffmpeg is None:
+        return False
+    tmp = path.with_name(path.stem + ".resampling.wav")
+    argv = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(path),
+        "-ac",
+        "1",
+        "-ar",
+        str(target_sr),
+        "-c:a",
+        "pcm_s16le",
+        str(tmp),
+    ]
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, **no_window_kwargs())
+        if proc.returncode != 0 or not tmp.is_file():
+            tmp.unlink(missing_ok=True)
+            return False
+        tmp.replace(path)
+        return True
+    except Exception:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
+        return False
+
+
 def resample_tree(root: str, target_sr: int = TARGET_SR, target_dbfs: float = -1.0) -> Dict[str, Any]:
     base = Path(root)
     changed: List[Dict[str, Any]] = []
     for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
         for wav_path in sorted(spk.glob("*.wav")):
             wav = read_wav(wav_path)
+            if wav.sample_rate != target_sr and _resample_with_ffmpeg(wav_path, target_sr):
+                wav = read_wav(wav_path)  # ffmpeg 已转成目标采样率单声道
             mono = to_mono_if_needed(wav)
             trimmed = trim_silence(mono, wav.sample_rate)
             resampled = resample_linear(trimmed, wav.sample_rate, target_sr)
@@ -472,13 +521,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="svc_bridge dataset")
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
     parser.add_argument("--max-seconds", type=float, default=15.0)
     parser.add_argument("--min-interval-ms", type=int, default=300)
     parser.add_argument("--sample-rate", type=int, default=TARGET_SR)
+    parser.add_argument("--backup-dir", default="")
+    parser.add_argument("--fade-ms", type=float, default=8.0)
     parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
     args = parser.parse_args(argv)
 
@@ -486,6 +537,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         result = scan(args.root)
     elif args.action == "prune-short":
         result = prune_short(args.root, 1.0)
+    elif args.action == "declick":
+        from .dataset_repair import declick_tree
+
+        result = declick_tree(args.root, args.fade_ms, args.backup_dir or None)
     elif args.action == "qc":
         if getattr(args, "events", False):
             from .. import rpc

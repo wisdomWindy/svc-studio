@@ -85,16 +85,23 @@ def to_svc_kwargs(params: Dict[str, Any], spk: str, raw_audio_path: Path) -> Dic
 def normalize_input(src: Path, dst: Path) -> None:
     """推理输入统一成 44.1k 单声道、峰值 -1dBFS；原文件不动。"""
     source = src
+    from .dataset_convert import _convert_one, find_ffmpeg
+
+    ffmpeg = find_ffmpeg()
     if src.suffix.lower() not in {".wav", ".wave"}:
         # 非 wav（mp3/m4a/flac…）先解码成临时 wav，再走后面的统一处理
-        from .dataset_convert import _convert_one, find_ffmpeg
-
-        ffmpeg = find_ffmpeg()
         if ffmpeg is None:
             raise RuntimeError("找不到 ffmpeg，无法解码非 wav 输入（安装包应内置 ffmpeg）")
         decoded = dst.with_name(dst.stem + ".decoded.wav")
         _convert_one(ffmpeg, src, decoded)
         source = decoded
+    else:
+        probe = read_wav(src)
+        if (probe.sample_rate != TARGET_SR or probe.channels != 1) and ffmpeg is not None:
+            # 非 44.1k 单声道 wav 也交给 ffmpeg：线性插值不做抗混叠，会引入"电音"
+            converted = dst.with_name(dst.stem + ".converted.wav")
+            _convert_one(ffmpeg, src, converted)
+            source = converted
     try:
         wav = read_wav(source)
     finally:
