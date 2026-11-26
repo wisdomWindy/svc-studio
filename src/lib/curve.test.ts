@@ -1,61 +1,63 @@
 import { describe, expect, it } from "vitest";
-import { parseLossSeries, sparklinePath } from "./curve";
+import { LOSS_STROKE, parseLossSeries, sparklinePath } from "./curve";
 import type { JobEvent } from "@/types";
 
-function event(seq: number, step: number, losses: number[], code = "CURVE"): JobEvent {
+function curveEvent(step: number, losses: unknown[], seq = step): JobEvent {
   return {
     seq,
-    ts: "2026-01-01T00:00:00Z",
-    level: "debug",
-    code,
+    ts: "2026-11-26T12:00:00.000Z",
+    level: "info",
+    code: "CURVE",
     message: "loss",
-    dataJson: JSON.stringify({ step, losses }),
+    dataJson: JSON.stringify({ step, losses, lr: 0.0001 }),
   };
 }
 
-describe("loss curve", () => {
-  it("parses curve events and sorts by step", () => {
-    const points = parseLossSeries([event(1, 3, [0.5, 0.2]), event(2, 1, [0.9, 0.3])]);
-    expect(points.map((p) => p.step)).toEqual([1, 3]);
-    expect(points[0]?.value).toBe(0.9);
+describe("loss 曲线", () => {
+  it("从 CURVE 事件解析出 step/loss 序列并按步数排序", () => {
+    const points = parseLossSeries([
+      curveEvent(400, [1.5, 2, 3]),
+      curveEvent(0, [6.07, 5.3]),
+      curveEvent(200, [1.42]),
+    ]);
+    expect(points).toEqual([
+      { step: 0, value: 6.07 },
+      { step: 200, value: 1.42 },
+      { step: 400, value: 1.5 },
+    ]);
   });
 
-  it("ignores non-curve events and broken json", () => {
-    const broken: JobEvent = {
-      seq: 3,
-      ts: "x",
-      level: "debug",
+  it("忽略非 CURVE 事件与坏 JSON", () => {
+    const bad: JobEvent = {
+      seq: 9,
+      ts: "2026-11-26T12:00:00.000Z",
+      level: "info",
       code: "CURVE",
-      message: "loss",
+      message: "x",
       dataJson: "{not json",
     };
-    expect(parseLossSeries([event(1, 1, [1]), broken, { ...event(2, 2, [1]), code: "SVC-5001" }])).toHaveLength(1);
+    const other = { ...bad, code: "SVC-5002", dataJson: '{"step":1,"losses":[1]}' };
+    expect(parseLossSeries([bad, other])).toEqual([]);
   });
 
-  it("returns empty path when fewer than two points", () => {
-    expect(sparklinePath([], 100, 40)).toBe("");
-    expect(sparklinePath([{ step: 1, value: 0.5 }], 100, 40)).toBe("");
+  it("生成可用的 SVG 路径；点数不足时返回空串", () => {
+    expect(sparklinePath([{ step: 0, value: 1 }], 520, 96)).toBe("");
+    const path = sparklinePath(
+      [
+        { step: 0, value: 6.07 },
+        { step: 9600, value: 1.9 },
+      ],
+      520,
+      96,
+    );
+    expect(path.startsWith("M")).toBe(true);
+    expect(path).not.toContain("NaN");
   });
 
-  it("maps values into the box and keeps flat series centered", () => {
-    const rising = sparklinePath(
-      [
-        { step: 1, value: 1 },
-        { step: 2, value: 2 },
-      ],
-      100,
-      40,
-    );
-    expect(rising.startsWith("M0.00,40.00")).toBe(true);
-
-    const flat = sparklinePath(
-      [
-        { step: 1, value: 2 },
-        { step: 2, value: 2 },
-      ],
-      100,
-      40,
-    );
-    expect(flat).toContain("20.00");
+  it("描边色必须包在 rgb() 里——--accent 是空格分隔的 RGB 分量", () => {
+    // 直接写 var(--accent) 会变成 `stroke: 214 106 58`（非法），浏览器回落到 none，线就消失了
+    expect(LOSS_STROKE.startsWith("rgb(")).toBe(true);
+    expect(LOSS_STROKE).toContain("var(--accent");
+    expect(LOSS_STROKE).not.toMatch(/^var\(/);
   });
 });

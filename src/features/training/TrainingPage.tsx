@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { backend, type CheckpointInfo, type Recommend } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { formatBytes, statusLabel } from "@/lib/format";
-import { parseLossSeries, sparklinePath } from "@/lib/curve";
+import { LOSS_STROKE, parseLossSeries, sparklinePath } from "@/lib/curve";
 import type { JobEvent } from "@/types";
 import { toErrorText } from "@/lib/errors";
 
@@ -453,7 +453,7 @@ export function TrainingPage() {
               </span>
             </div>
             <svg viewBox="0 0 520 96" className="mt-1 h-24 w-full" role="img" aria-label="训练 loss 曲线">
-              <path d={path} fill="none" stroke="var(--accent, #d66a3a)" strokeWidth="1.5" />
+              <path d={path} fill="none" stroke={LOSS_STROKE} strokeWidth="1.5" />
             </svg>
           </div>
         );

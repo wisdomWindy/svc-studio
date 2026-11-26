@@ -117,7 +117,8 @@ describe("TasksPage 删除", () => {
 
     // 任务行与它的日志一起消失：已删任务的记录不能留在面板上
     await waitFor(() => expect(screen.queryByText("inference")).toBeNull());
-    expect(screen.queryByText("开始预处理")).toBeNull();
+    // 清空 events 发生在 setSelected(null) 触发的 effect 里，要等一拍，不能同步断言
+    await waitFor(() => expect(screen.queryByText("开始预处理")).toBeNull());
   });
 
   it("删除后刷新仍按当前项目过滤，不冒出其他项目的任务", async () => {
