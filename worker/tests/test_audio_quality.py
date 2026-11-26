@@ -116,3 +116,36 @@ def test_declick_skips_stereo(work: Path) -> None:
     result = declick_tree(str(root))
     assert result["changedCount"] == 0
     assert result["skipped"][0]["reason"].startswith("不是单声道")
+
+
+def test_numpy_and_stdlib_paths_agree(monkeypatch) -> None:
+    """numpy 只是加速：两条路径的数值结果必须一致，否则音质会随环境漂移。"""
+    np = pytest.importorskip("numpy")
+    samples = array.array("h", [(i * 37) % 20000 - 10000 for i in range(4410)])
+
+    monkeypatch.setattr(audio, "_NUMPY_TRIED", True)
+    monkeypatch.setattr(audio, "_NUMPY", None)
+    slow = {
+        "rms": audio.rms_dbfs(samples),
+        "peak": audio.peak_dbfs(samples),
+        "trim": bytes(audio.trim_silence(samples, 44100).tobytes()),
+        "protect": bytes(audio.protect_peak(samples, -6.0).tobytes()),
+        "resample": bytes(audio.resample_linear(samples, 48000, 44100).tobytes()),
+        "clip": audio.clipping_ratio(samples),
+    }
+
+    monkeypatch.setattr(audio, "_NUMPY", np)
+    fast = {
+        "rms": audio.rms_dbfs(samples),
+        "peak": audio.peak_dbfs(samples),
+        "trim": bytes(audio.trim_silence(samples, 44100).tobytes()),
+        "protect": bytes(audio.protect_peak(samples, -6.0).tobytes()),
+        "resample": bytes(audio.resample_linear(samples, 48000, 44100).tobytes()),
+        "clip": audio.clipping_ratio(samples),
+    }
+
+    assert slow["peak"] == pytest.approx(fast["peak"], abs=1e-6)
+    assert slow["rms"] == pytest.approx(fast["rms"], abs=1e-6)
+    assert slow["clip"] == pytest.approx(fast["clip"], abs=1e-9)
+    for key in ("trim", "protect", "resample"):
+        assert slow[key] == fast[key], f"{key} 两条路径输出不一致"
