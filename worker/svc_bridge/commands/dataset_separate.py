@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import source_gate
+from . import quality_metrics, source_gate
 
 WAV_EXTS = {".wav", ".wave"}
 AUDIO_EXTS = WAV_EXTS | {".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".wma"}
@@ -168,6 +168,10 @@ def separate_tree(
                         if drop_rejected:
                             src.unlink(missing_ok=True)
                         continue
+                    # P1：分离质量指标（只报告，不参与删除）
+                    quality = quality_metrics.measure(
+                        vocals, Path(str(result.get("accompaniment") or "")) if result.get("accompaniment") else None
+                    )
                     shutil.copyfile(vocals, dest)
                     engine = str(result.get("engine") or "unknown")
                     engines[engine] = engines.get(engine, 0) + 1
@@ -183,6 +187,7 @@ def separate_tree(
                         "relPath": f"{spk.name}/{src.name}",
                         "output": f"{spk.name}/{dest.name}",
                         "engine": engine,
+                        "quality": quality,
                     }
                 )
             except Exception as exc:  # noqa: BLE001
@@ -197,6 +202,8 @@ def separate_tree(
         "offlineWeights": str(torch_home) if torch_home else None,
         "seconds": round(time.time() - started, 1),
         "separated": separated,
+        # 分离质量汇总：只报告，不参与删除（阈值待标定后由使用方决定）
+        "quality": quality_metrics.summarize([s.get("quality") or {} for s in separated]),
         "skipped": skipped,
         "failed": failed,
     }

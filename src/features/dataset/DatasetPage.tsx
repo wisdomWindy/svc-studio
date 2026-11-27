@@ -190,6 +190,10 @@ export function DatasetPage() {
       const quality: string[] = [];
       if (skippedSources > 0) quality.push(`体检删除 ${skippedSources} 个不可用源文件`);
       if (refinedRejected > 0) quality.push(`精修删除 ${refinedRejected} 个不合格切片`);
+      const sepQuality = (prepared.separationQuality ?? {}) as Record<string, number | null>;
+      if (typeof sepQuality.medianBleed === "number") {
+        quality.push(`分离泄漏中位 ${sepQuality.medianBleed.toFixed(3)}`);
+      }
       if (refinedStats.rolloffHzMedian) {
         quality.push(`保留切片带宽中位 ${Math.round(refinedStats.rolloffHzMedian / 100) / 10} kHz`);
       }

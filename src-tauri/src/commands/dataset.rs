@@ -686,6 +686,8 @@ async fn run_prepare(
         "skipped": converted.get("skipped").cloned().unwrap_or(serde_json::Value::Null),
         "sliced": sliced.get("sliced").cloned().unwrap_or(serde_json::Value::Null),
         "resampled": resampled.get("changed").cloned().unwrap_or(serde_json::Value::Null),
+        // 分离质量（只报告：伴奏泄漏相关 + 人声占比）
+        "separationQuality": sep_report.get("quality").cloned().unwrap_or(serde_json::Value::Null),
         "refinedKept": refined.get("keptFiles").cloned().unwrap_or(serde_json::Value::Null),
         "refinedRejected": refined
             .get("rejectedFiles")

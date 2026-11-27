@@ -76,15 +76,84 @@ class Wav:
         return out
 
 
+def _read_wav_flexible(path: Path) -> Wav:
+    """解析 `wave` 不认的 WAV：IEEE float（format 3）与 8/24/32-bit PCM。
+
+    分离器输出的 stem 常是 32-bit float；若只认 16-bit PCM，切片/QC/refine 会直接崩。
+    """
+    raw = Path(path).read_bytes()
+    if len(raw) < 12 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        raise ValueError(f"不是 WAV 文件: {path}")
+    pos = 12
+    fmt = None
+    data = None
+    while pos + 8 <= len(raw):
+        cid = raw[pos : pos + 4]
+        size = int.from_bytes(raw[pos + 4 : pos + 8], "little")
+        body = raw[pos + 8 : pos + 8 + size]
+        if cid == b"fmt ":
+            fmt = body
+        elif cid == b"data":
+            data = body
+        pos += 8 + size + (size & 1)
+    if fmt is None or len(fmt) < 16 or data is None:
+        raise ValueError(f"WAV 缺少 fmt/data 块: {path}")
+
+    audio_format = int.from_bytes(fmt[0:2], "little")
+    channels = int.from_bytes(fmt[2:4], "little") or 1
+    rate = int.from_bytes(fmt[4:8], "little")
+    bits = int.from_bytes(fmt[14:16], "little") or 16
+    if channels <= 0 or rate <= 0:
+        raise ValueError(f"WAV 头非法: {path}")
+
+    np = _np()
+    if audio_format == 3:  # IEEE float
+        if np is None:
+            raise ValueError("读取 float WAV 需要 numpy")
+        dtype = "<f4" if bits == 32 else "<f8"
+        arr = np.frombuffer(data, dtype=dtype).astype(np.float64)
+        arr = np.clip(arr, -1.0, 1.0) * 32767.0
+        samples = array.array("h", np.trunc(arr).astype("<i2").tobytes())
+    elif audio_format == 1:  # PCM
+        if bits == 16:
+            samples = array.array("h")
+            samples.frombytes(data[: len(data) - (len(data) % 2)])
+        elif bits == 8:
+            samples = array.array("h", ((b - 128) * 256 for b in data))
+        elif bits == 24:
+            if np is None:
+                raise ValueError("读取 24-bit WAV 需要 numpy")
+            b = np.frombuffer(data, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+            v = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+            v = np.where(v >= 1 << 23, v - (1 << 24), v)
+            samples = array.array("h", np.clip(v >> 8, -32768, 32767).astype("<i2").tobytes())
+        elif bits == 32:
+            if np is None:
+                raise ValueError("读取 32-bit PCM WAV 需要 numpy")
+            v = np.frombuffer(data, dtype="<i4").astype(np.int64)
+            samples = array.array("h", np.clip(v >> 16, -32768, 32767).astype("<i2").tobytes())
+        else:
+            raise ValueError(f"不支持的 PCM 位宽 {bits}: {path}")
+    else:
+        raise ValueError(f"不支持的 WAV 编码 format={audio_format}: {path}")
+
+    frames = len(samples) // channels
+    return Wav(sample_rate=rate, channels=channels, samples=samples, frames=frames)
+
+
 def read_wav(path: Path) -> Wav:
-    with wave.open(str(path), "rb") as wf:
-        channels = wf.getnchannels()
-        width = wf.getsampwidth()
-        rate = wf.getframerate()
-        frames = wf.getnframes()
-        raw = wf.readframes(frames)
+    try:
+        with wave.open(str(path), "rb") as wf:
+            channels = wf.getnchannels()
+            width = wf.getsampwidth()
+            rate = wf.getframerate()
+            frames = wf.getnframes()
+            raw = wf.readframes(frames)
+    except (wave.Error, EOFError, ValueError):
+        # `wave` 只认 PCM；float WAV / 24-bit 等交给自解析路径
+        return _read_wav_flexible(path)
     if width != 2:
-        raise ValueError(f"只支持 16-bit PCM，当前 {width * 8}-bit: {path}")
+        return _read_wav_flexible(path)
     samples = array.array("h")
     samples.frombytes(raw)
     if channels > 1:
