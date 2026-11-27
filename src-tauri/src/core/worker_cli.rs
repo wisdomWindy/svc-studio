@@ -109,6 +109,34 @@ fn _worker_paths_unused() -> (PathBuf, PathBuf) {
     (resolve_python(), resolve_worker_dir())
 }
 
+/// 探测 worker 是否支持某个开关：跑一次 `<args>`（通常是 `preprocess --help`），
+/// 看输出里有没有这个开关。
+///
+/// 升级应用时不会重新下载 3.6GB 运行时，旧运行时里的 worker 可能还没有新开关
+/// （例如 0.3.17 的 `--events`）；这时必须退回旧调用方式，不能让预处理直接
+/// 因为 argparse 不认参数而失败。
+pub async fn supports_flag(args: &[&str], flag: &str) -> bool {
+    use std::process::Stdio;
+
+    let python = resolve_python();
+    let worker = resolve_worker_dir();
+    let mut cmd = command_with_env(&python, &worker, args);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    match cmd.output().await {
+        Ok(output) => {
+            let help = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            help.contains(flag)
+        }
+        Err(_) => false,
+    }
+}
+
 /// 事件名：与 worker 的 `rpc.emit_progress` 对应。
 fn progress_event(line: &str) -> Option<Value> {
     let value: Value = serde_json::from_str(line.trim()).ok()?;

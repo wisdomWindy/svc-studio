@@ -200,6 +200,13 @@ pub(crate) fn preprocess_start_impl(
 
     tauri::async_runtime::spawn(async move {
         let _gpu = scheduler.acquire().await;
+        // 旧运行时（不随应用版本重新下载）里的 worker 可能还没有 --events；
+        // 先探测一下，不支持就退回旧调用方式，别让预处理直接 argparse 报错。
+        let events = crate::core::worker_cli::supports_flag(
+            &["preprocess", "--help"],
+            "--events",
+        )
+        .await;
 
         let args = vec![
             "preprocess".to_string(),
@@ -215,9 +222,11 @@ pub(crate) fn preprocess_start_impl(
             procs.to_string(),
             "--manifest".to_string(),
             manifest_path.clone(),
-            "--events".to_string(),
         ];
         let mut args = args;
+        if events {
+            args.push("--events".to_string());
+        }
         if use_diff {
             args.push("--use-diff".to_string());
         }
@@ -226,8 +235,9 @@ pub(crate) fn preprocess_start_impl(
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        // worker 以 --events 逐行推进度；把每一步折算成整条链路的百分比写进 DB，
-        // 任务页每 3 秒轮询一次，进度条因此能真的从 0% 爬到 100%。
+        // 新运行时：worker 用 --events 逐行推进度，按阶段折算成整条链路的百分比。
+        // 旧运行时（升级应用不会重下 3.6GB 运行时，worker 里还没有 --events）：
+        // 由 Rust 自己盯产物数量，同样能给出连续进度，而不是一直 0%。
         let progress_db = db.clone();
         let progress_job = job_for_task.clone();
         let on_progress: std::sync::Arc<dyn Fn(&Value) + Send + Sync> =
@@ -248,6 +258,13 @@ pub(crate) fn preprocess_start_impl(
                     )
                 });
             });
+        let watcher = (!events).then(|| {
+            spawn_product_watcher(
+                root_for_task.clone(),
+                db.clone(),
+                job_for_task.clone(),
+            )
+        });
 
         // 预处理不做超时判定：跑多久等多久；用户可随时取消（杀进程树）
         let cancel_rx = running.register(&job_for_task);
@@ -257,6 +274,9 @@ pub(crate) fn preprocess_start_impl(
             on_progress,
         )
         .await;
+        if let Some(watcher) = watcher {
+            watcher.stop();
+        }
         if let Ok((_, _, true)) = &result {
             let now = now_iso();
             let _ = db.with(|c| {
@@ -499,6 +519,34 @@ mod tests {
         assert_eq!(stage_ratio("hubert_f0", 999, 100), Some(0.98));
         assert_eq!(stage_ratio("unknown-stage", 1, 2), None);
     }
+
+    #[test]
+    fn product_ratio_climbs_from_resample_to_hubert_features() {
+        // 还没产出任何东西
+        assert_eq!(product_ratio(0, 0, 100), 0.0);
+        // resample 进行到一半：44k 下出现 50/100 个 wav
+        let resampling = product_ratio(50, 0, 100);
+        assert!(resampling > 0.0 && resampling <= 0.10, "{resampling}");
+        // 特征开始出现：489 个切片做出 122 个
+        let features = product_ratio(489, 122, 489);
+        assert!(features > 0.30 && features < 0.40, "{features}");
+        // 全部做完也不越过 100%，最后 1.0 由任务完成时写入
+        assert_eq!(product_ratio(489, 489, 489), 0.98);
+    }
+
+    #[test]
+    fn counts_products_recursively_by_suffix() {
+        let temp = tempfile::tempdir().unwrap();
+        let nested = temp.path().join("spk").join("sub");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(temp.path().join("a.wav"), b"x").unwrap();
+        std::fs::write(nested.join("b.wav"), b"x").unwrap();
+        std::fs::write(nested.join("b.wav.f0.npy"), b"x").unwrap();
+
+        assert_eq!(count_wavs(temp.path()), 2);
+        assert_eq!(count_with_suffix(temp.path(), ".f0.npy"), 1);
+        assert_eq!(count_wavs(&temp.path().join("missing")), 0);
+    }
 }
 
 /// 把预处理每一步折算成整条链路上的进度区间。
@@ -518,6 +566,88 @@ fn stage_ratio(stage: &str, step: u64, total: u64) -> Option<f64> {
         (step.min(total) as f64 / total as f64).clamp(0.0, 1.0)
     };
     Some((start + (end - start) * fraction).clamp(0.0, 0.98))
+}
+
+/// 旧运行时的兜底进度：不依赖 worker 的事件，直接盯产物数量。
+struct ProductWatcher {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ProductWatcher {
+    fn stop(&self) {
+        self.stop
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// 统计目录下指定后缀的文件数（递归）。
+fn count_with_suffix(root: &std::path::Path, suffix: &str) -> u64 {
+    let mut total = 0_u64;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let matches = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(suffix));
+            if matches {
+                total += 1;
+            }
+        }
+    }
+    total
+}
+
+fn count_wavs(root: &std::path::Path) -> u64 {
+    count_with_suffix(root, ".wav")
+}
+
+/// 产物数量 → 整条链路的进度：还没出特征说明在 resample，出了特征就是在跑 hubert_f0。
+fn product_ratio(wavs: u64, feats: u64, raw_total: u64) -> f64 {
+    let ratio = if feats > 0 {
+        0.15 + 0.83 * (feats as f64 / wavs.max(1) as f64).min(1.0)
+    } else if wavs > 0 {
+        0.10 * (wavs as f64 / raw_total.max(1) as f64).min(1.0)
+    } else {
+        0.0
+    };
+    ratio.clamp(0.0, 0.98)
+}
+
+/// 每 2 秒按产物数量写一次进度：resample 阶段看 44k 下的 wav 增长，
+/// hubert_f0 阶段看 `.f0.npy` 增长。旧运行时也能看到连续进度。
+fn spawn_product_watcher(
+    root: std::path::PathBuf,
+    db: std::sync::Arc<crate::infra::db::Db>,
+    job: String,
+) -> ProductWatcher {
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stop.clone();
+    tauri::async_runtime::spawn(async move {
+        let dataset = root.join("dataset").join("44k");
+        let raw_total = count_wavs(&root.join("dataset_raw")).max(1);
+        loop {
+            if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            let wavs = count_wavs(&dataset);
+            let feats = count_with_suffix(&dataset, ".f0.npy");
+            let ratio = product_ratio(wavs, feats, raw_total);
+            let _ = db.with(|c| {
+                jobs::set_progress(c, &job, ratio, Some(feats as i64), Some(wavs as i64))
+            });
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    });
+    ProductWatcher { stop }
 }
 
 /// 最近一次 QC 结论：None 表示从未跑过。
