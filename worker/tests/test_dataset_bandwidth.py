@@ -67,3 +67,60 @@ def test_skips_underscore_directories(work: Path) -> None:
     _write(root / "_original" / "spk" / "b.wav", 3, 5000)
     result = dataset_bandwidth.scan(str(root))
     assert result["files"] == 1, "备份目录（_original 等）不参与体检"
+
+def _write_noise(path: Path, seconds: float, sr: int, lowpass: float | None = None) -> Path:
+    import numpy as np
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(7)
+    x = rng.normal(0, 0.1, int(seconds * sr))
+    if lowpass:
+        spec = np.fft.rfft(x)
+        freqs = np.fft.rfftfreq(len(x), 1 / sr)
+        spec[freqs > lowpass] = 0
+        x = np.fft.irfft(spec, n=len(x))
+    audio.write_wav(path, array.array("h", (x * 32767).astype("int16").tobytes()), sr, 1)
+    return path
+
+
+def test_bandwidth_db_matches_known_ground_truth(work: Path) -> None:
+    """标定：已知真值的信号，-50dB 口径误差必须 ≤5%。"""
+    import numpy as np
+
+    from svc_bridge.commands.source_gate import bandwidth_db
+
+    cases = [(22050, None), (15000, 15000), (8000, 8000)]
+    for truth, lp in cases:
+        path = _write_noise(work / f"n{truth}.wav", 5, 44100, lowpass=lp)
+        wav = audio.read_wav(path)
+        got = bandwidth_db(wav.samples, wav.sample_rate)
+        assert got is not None
+        assert abs(got - truth) / truth <= 0.05, f"真值 {truth}Hz，实测 {got:.0f}Hz"
+
+
+def test_24k_audio_is_sampling_rate_limited_not_dull(work: Path) -> None:
+    """24kHz 文件在容器内已满带宽，不能判成「偏闷」（真实参考音曾因此被误判）。"""
+    root = work / "dataset_raw"
+    _write_noise(root / "spk" / "ref24k.wav", 5, 24000)
+    result = dataset_bandwidth.scan(str(root))
+
+    assert result["samplingRateLimitedFiles"] == 1
+    assert result["verdict"]["level"] == "sampling-limited"
+    assert "采样率" in result["verdict"]["label"] or "满带宽" in result["verdict"]["label"]
+    assert result["medianRolloffHz"] >= 24000 / 2 * 0.95
+
+
+def test_44k_wideband_is_good(work: Path) -> None:
+    root = work / "dataset_raw"
+    _write_noise(root / "spk" / "wide.wav", 5, 44100)
+    result = dataset_bandwidth.scan(str(root))
+    assert result["verdict"]["level"] == "good"
+    assert result["samplingRateLimitedFiles"] == 1  # 44.1k 满带宽也算贴 Nyquist
+
+
+def test_44k_bandlimited_is_not_sampling_limited(work: Path) -> None:
+    root = work / "dataset_raw"
+    _write_noise(root / "spk" / "dull.wav", 5, 44100, lowpass=6000)
+    result = dataset_bandwidth.scan(str(root))
+    assert result["samplingRateLimitedFiles"] == 0
+    assert result["verdict"]["level"] in {"dull", "very-dull"}

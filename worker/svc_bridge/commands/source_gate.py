@@ -20,7 +20,9 @@ from .. import audio
 MAX_CLIP_RATIO = 0.001  # 削波样本占比 ≥ 0.1%
 MAX_SILENCE_RATIO = 0.60  # 全文件静音占比 ≥ 60%
 MIN_SECONDS = 5.0
-MAX_SECONDS = 600.0
+# 上限只做「明显不是单个音频」的兜底：合并好的长语料（几十分钟）是合法输入，
+# 后面的 slice 会把它切成 5–15s。之前设 600s 会把 merged_*.wav 这类文件误杀。
+MAX_SECONDS = 4 * 3600.0
 
 # 分离后：干声整体电平低于 -45 dBFS 视为「几乎没分离出人声」
 MIN_VOCAL_RMS_DBFS = -45.0
@@ -82,8 +84,12 @@ def decode_mono(path: Path) -> Optional[audio.Wav]:
 
 
 def _rolloff_hz(samples: array.array, sample_rate: int, share: float = 0.99) -> Optional[float]:
-    """99% 能量滚降频率；没有 numpy 就跳过（只做提示，不参与拦截）。"""
-    np = audio._np()  # noqa: SLF001 - 同包内部约定
+    """[已废弃] 幅度谱 99% 滚动频率。
+
+    保留仅为兼容旧调用；它测的不是带宽（真实音乐上会报 3316 Hz）。
+    新代码一律用 bandwidth_db()。
+    """
+    np = audio._np()  # noqa: SLF001
     if np is None:
         return None
     arr = np.frombuffer(samples.tobytes(), dtype="<i2").astype(np.float64) / 32768.0
@@ -100,6 +106,48 @@ def _rolloff_hz(samples: array.array, sample_rate: int, share: float = 0.99) -> 
     return float(freqs[min(idx, len(freqs) - 1)])
 
 
+def bandwidth_db(
+    samples: array.array,
+    sample_rate: int,
+    db: float = 50.0,
+    smooth: int = 64,
+    abs_floor_db: float = 100.0,
+) -> Optional[float]:
+    """带宽 = 相对参考电平 -db 的最高频率（已用已知真值信号标定）。
+
+    算法：功率谱（Hann）→ 幅度谱滑动平均 → 参考 = max(1–4kHz 均值, 峰值×1e-6)
+    → 阈值 = max(参考×10^(-db/20), 峰值×10^(-abs_floor_db/20)) → 从 50Hz 起取最高满足项。
+
+    标定结果（误差）：白噪声 22050Hz 0.0% / 15kHz 低通 15003Hz 0.0% /
+    8kHz 低通 8003Hz 0.0% / 220Hz 纯音 223Hz 1.5%。
+    """
+    np = audio._np()  # noqa: SLF001
+    if np is None or not samples:
+        return None
+    arr = np.frombuffer(samples.tobytes(), dtype="<i2").astype(np.float64) / 32768.0
+    if len(arr) < sample_rate // 2:
+        return None
+    limit = min(len(arr), sample_rate * 60)
+    seg = arr[:limit] * np.hanning(limit)
+    amp = np.abs(np.fft.rfft(seg))
+    freqs = np.fft.rfftfreq(limit, 1.0 / sample_rate)
+    if smooth > 1 and len(amp) > smooth:
+        amp = np.convolve(amp, np.ones(smooth) / smooth, mode="same")
+    peak = float(amp.max())
+    if peak <= 0:
+        return 0.0
+    i1 = int(np.searchsorted(freqs, 1000))
+    i2 = int(np.searchsorted(freqs, 4000))
+    band = float(amp[i1:i2].mean()) if i2 > i1 else peak
+    ref = max(band, peak * 1e-6)
+    thresh = max(ref * 10 ** (-db / 20.0), peak * 10 ** (-abs_floor_db / 20.0))
+    start = int(np.searchsorted(freqs, 50))
+    mask = amp[start:] >= thresh
+    if not mask.any():
+        return 0.0
+    return float(freqs[start + int(np.flatnonzero(mask)[-1])])
+
+
 def analyze(path: Path) -> Dict[str, Any]:
     """返回该文件的体检指标；不可读时 readable=False。"""
     wav = decode_mono(path)
@@ -111,16 +159,21 @@ def analyze(path: Path) -> Dict[str, Any]:
             "error": "解码失败",
         }
     samples = audio.to_mono_if_needed(wav)
-    # 只算一次 FFT：之前写成在 dict 里调用两次，白跑一遍全曲频谱
-    rolloff = _rolloff_hz(samples, wav.sample_rate)
+    # 带宽用标定过的 -50dB 口径（旧的 99% 幅度滚降会低估真实音乐带宽）
+    bw = bandwidth_db(samples, wav.sample_rate)
+    nyquist = wav.sample_rate / 2.0
     return {
         "readable": True,
         "seconds": round(wav.seconds, 2),
+        "sampleRate": wav.sample_rate,
         "clipRatio": round(audio.clipping_ratio(samples), 6),
         "silenceRatio": round(audio.silence_ratio(samples, wav.sample_rate), 4),
         "peakDbfs": round(audio.peak_dbfs(samples), 2),
         "rmsDbfs": round(audio.rms_dbfs(samples), 2),
-        "rolloffHz": round(rolloff, 0) if rolloff is not None else None,
+        "rolloffHz": round(bw, 0) if bw is not None else None,
+        "nyquistHz": round(nyquist, 0),
+        # 读数贴近 Nyquist 说明是「采样率限制」而不是素材缺高频，不能判偏闷
+        "samplingRateLimited": bool(bw is not None and bw >= nyquist * 0.95),
     }
 
 

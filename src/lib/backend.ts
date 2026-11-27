@@ -60,6 +60,8 @@ export interface BandwidthReport {
   minRolloffHz?: number | null;
   maxRolloffHz?: number | null;
   estimatedOutputCeilingHz: number | null;
+  nyquistHz?: number[];
+  samplingRateLimitedFiles?: number;
   verdict: { level: string; label: string; advice: string };
   seconds?: number;
 }

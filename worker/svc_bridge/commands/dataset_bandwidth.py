@@ -86,15 +86,19 @@ def scan(root: str, limit: int = 0) -> Dict[str, Any]:
                 failed.append(f"{spk.name}/{path.name}")
                 continue
             samples = audio.to_mono_if_needed(wav)
-            hz = source_gate._rolloff_hz(samples, wav.sample_rate)  # noqa: SLF001
+            hz = source_gate.bandwidth_db(samples, wav.sample_rate)
             if hz is None:
                 failed.append(f"{spk.name}/{path.name}")
                 continue
+            nyquist = wav.sample_rate / 2.0
             files.append(
                 {
                     "relPath": f"{spk.name}/{path.name}",
                     "seconds": round(wav.seconds, 2),
                     "rolloffHz": round(hz, 0),
+                    "sampleRate": wav.sample_rate,
+                    # 读数贴近 Nyquist = 采样率限制，不是素材缺高频
+                    "samplingRateLimited": hz >= nyquist * 0.95,
                 }
             )
             if limit and len(files) >= limit:
@@ -119,8 +123,27 @@ def scan(root: str, limit: int = 0) -> Dict[str, Any]:
     for f in files:
         buckets[_bucket(f["rolloffHz"])] = buckets.get(_bucket(f["rolloffHz"]), 0) + 1
 
+    limited = [f for f in files if f.get("samplingRateLimited")]
+    nyquists = sorted({int(f["sampleRate"] // 2) for f in files if f.get("sampleRate")})
     ceiling = min(20000.0, median)
-    verdict = _verdict(median)
+
+    # 关键区分：多数文件读数已贴到 Nyquist，说明是「采样率限制」而非「素材缺高频」。
+    # 但 44.1k/48k 容器贴 Nyquist 属于「满带宽、良好」，只有容器上限本身就低
+    # （如 24 kHz → 12 kHz）才判「受采样率限制」，避免把好素材判成偏闷。
+    limited_ratio = len(limited) / len(files) if files else 0.0
+    if limited_ratio >= 0.5 and median < 19000:
+        verdict = {
+            "level": "sampling-limited",
+            "label": "满带宽（受采样率限制）",
+            "advice": (
+                f"这批文件自身的频响已到容器的上限（采样率 {min(nyquists) * 2 // 1000}k → "
+                f"Nyquist {min(nyquists)} Hz），素材在容器内是满带宽、并不闷；"
+                "若要 44.1 kHz 输出，请改用 44.1 kHz 的原始文件。"
+            ),
+        }
+    else:
+        verdict = _verdict(median)
+
     return {
         "schema": "svcstudio.dataset.bandwidth/1",
         "files": len(files),
@@ -129,6 +152,9 @@ def scan(root: str, limit: int = 0) -> Dict[str, Any]:
         "medianRolloffHz": round(median, 0),
         "minRolloffHz": round(values[0], 0),
         "maxRolloffHz": round(values[-1], 0),
+        "nyquistHz": nyquists,
+        # 受采样率限制的文件数：这些文件的带宽读数不能当作"素材质量"判断
+        "samplingRateLimitedFiles": len(limited),
         # 素材上限即输出上限（mel 不可能凭空补回缺失的高频）
         "estimatedOutputCeilingHz": round(ceiling, 0),
         "verdict": verdict,
