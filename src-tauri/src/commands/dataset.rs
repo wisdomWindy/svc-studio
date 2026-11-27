@@ -612,17 +612,19 @@ async fn run_prepare(
     let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
     stage("resample", "统一 44.1k 单声道…");
     let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
-    // 切片后按干声质量剔除最差 10%（直接删除，只保留合格音频）
-    stage("prune", "剔除最差 10% 片段…");
-    let pruned = run_json(
+    // 切片后按绝对质量阈值精修：时长/噪声底/带宽/近重复 + 响度归一化（不合格直接删除）
+    stage("refine", "按质量阈值精修切片…");
+    let refined = run_json(
         &python,
         &[
             "dataset",
-            "prune-quality",
+            "refine",
             "--root",
             &root_arg,
-            "--keep",
-            "0.9",
+            "--min-snr-db",
+            "10",
+            "--min-rolloff-hz",
+            "13000",
         ],
     )
     .await?;
@@ -657,8 +659,13 @@ async fn run_prepare(
         "skipped": converted.get("skipped").cloned().unwrap_or(serde_json::Value::Null),
         "sliced": sliced.get("sliced").cloned().unwrap_or(serde_json::Value::Null),
         "resampled": resampled.get("changed").cloned().unwrap_or(serde_json::Value::Null),
-        "prunedFiles": pruned.get("droppedFiles").cloned().unwrap_or(serde_json::Value::Null),
-        "prunedBackupDir": pruned.get("backupDir").cloned().unwrap_or(serde_json::Value::Null),
+        "refinedKept": refined.get("keptFiles").cloned().unwrap_or(serde_json::Value::Null),
+        "refinedRejected": refined
+            .get("rejectedFiles")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "refinedDuplicates": refined.get("duplicates").cloned().unwrap_or(serde_json::Value::Null),
+        "refinedStats": refined.get("keptStats").cloned().unwrap_or(serde_json::Value::Null),
         "keptCount": finalized.get("keptCount").cloned().unwrap_or(serde_json::Value::Null),
         "removedCount": finalized
             .get("removed")

@@ -521,7 +521,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="svc_bridge dataset")
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality", "refine"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
@@ -531,6 +531,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--backup-dir", default="")
     parser.add_argument("--fade-ms", type=float, default=8.0)
     parser.add_argument("--keep", type=float, default=0.85)
+    parser.add_argument("--min-snr-db", type=float, default=10.0)
+    parser.add_argument("--min-rolloff-hz", type=float, default=0.0)
+    parser.add_argument("--dedup-similarity", type=float, default=0.995)
+    parser.add_argument("--target-rms-dbfs", type=float, default=-20.0)
+    parser.add_argument("--no-normalize", action="store_true")
     parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
     parser.add_argument(
         "--keep-rejected",
@@ -543,6 +548,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         result = scan(args.root)
     elif args.action == "prune-short":
         result = prune_short(args.root, 1.0)
+    elif args.action == "refine":
+        from .dataset_refine import refine_tree
+
+        result = refine_tree(
+            args.root,
+            min_seconds=args.min_seconds,
+            max_seconds=args.max_seconds,
+            min_snr_db=args.min_snr_db,
+            min_rolloff_hz=args.min_rolloff_hz,
+            dedup_similarity=args.dedup_similarity,
+            target_rms_dbfs=args.target_rms_dbfs,
+            normalize=not args.no_normalize,
+        )
     elif args.action == "prune-quality":
         from .dataset_quality import prune_quality_tree
 
