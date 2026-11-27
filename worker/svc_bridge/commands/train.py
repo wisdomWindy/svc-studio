@@ -29,6 +29,30 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
 
 
+# 训练子进程是自己独占显存的，worker 无法直接读它的 torch 显存计数器；
+# 用 nvidia-smi 采样整卡占用作为近似（对单任务训练，误差来自桌面/其他进程的尾部占用）。
+_VRAM_QUERY = ("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+
+
+def sample_vram_mb() -> Optional[int]:
+    """采样显存占用（MB）；没有 nvidia-smi 时返回 None，绝不影响训练。"""
+    try:
+        proc = subprocess.run(
+            list(_VRAM_QUERY), capture_output=True, text=True, timeout=3
+        )
+        if proc.returncode != 0:
+            return None
+        first = (proc.stdout or "").strip().splitlines()
+        if not first:
+            return None
+        # 有的驱动会带单位（"5830 MiB"），只取第一个数字
+        match = re.search(r"(\d+(?:\.\d+)?)", first[0])
+        return int(float(match.group(1))) if match else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+
 def build_smoke_config(
     src: str, dst: str, eval_interval: int = 50, log_interval: int = 10
 ) -> Dict[str, Any]:
@@ -203,6 +227,10 @@ def run_train(
     oom = False
     host_oom = False
     diverged = False
+    # 训练遥测：耗时与显存峰值（供界面算 ETA、显示峰值）
+    vram_mb: Optional[int] = None
+    vram_peak = 0
+    last_vram_at = 0.0
     saw_traceback = False
     # 训练日志落盘：驱动重置/崩溃时事件里可能什么都没有，文件是唯一线索
     log_dir = Path(project) / "logs"
@@ -256,6 +284,14 @@ def run_train(
             if parsed:
                 last_step = max(last_step, int(parsed["step"]))
                 total = max_steps if max_steps else 0
+                now_ts = time.time()
+                # 限频采样（>=2s 一次）：每步都 fork nvidia-smi 会拖慢训练
+                if now_ts - last_vram_at >= 2.0:
+                    sampled = sample_vram_mb()
+                    if sampled is not None:
+                        vram_mb = sampled
+                        vram_peak = max(vram_peak, sampled)
+                    last_vram_at = now_ts
                 send(
                     {
                         "kind": "progress",
@@ -264,6 +300,10 @@ def run_train(
                         "total": total,
                         "losses": parsed["losses"],
                         "lr": parsed.get("lr"),
+                        # 遥测：界面据此算 ETA、显示显存峰值
+                        "elapsed": round(now_ts - started, 1),
+                        "vramMb": vram_mb,
+                        "vramPeakMb": vram_peak or None,
                     }
                 )
                 if max_steps and last_step >= max_steps:

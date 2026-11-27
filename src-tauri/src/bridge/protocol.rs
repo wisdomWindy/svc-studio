@@ -21,6 +21,7 @@ pub enum WorkerEvent {
     Stage {
         stage: String,
     },
+    #[serde(rename_all = "camelCase")]
     Progress {
         #[serde(default)]
         stage: Option<String>,
@@ -33,6 +34,15 @@ pub enum WorkerEvent {
         losses: Vec<f64>,
         #[serde(default)]
         lr: Option<f64>,
+        /// 本次尝试已耗时（秒）：界面用它与 step 算 ETA / 每步耗时。
+        #[serde(default)]
+        elapsed: Option<f64>,
+        /// 当前显存占用（MB，nvidia-smi 采样；读不到时为 None）。
+        #[serde(default)]
+        vram_mb: Option<u32>,
+        /// 本次尝试的显存峰值（MB）。
+        #[serde(default)]
+        vram_peak_mb: Option<u32>,
     },
     Log {
         #[serde(default = "default_level")]
@@ -114,6 +124,9 @@ mod tests {
                 total: 100,
                 losses: Vec::new(),
                 lr: None,
+                elapsed: None,
+                vram_mb: None,
+                vram_peak_mb: None,
             }
         );
         let b = parse_line(r#"{"kind":"progress","step":1,"total":2}"#).unwrap();
@@ -125,8 +138,33 @@ mod tests {
                 total: 2,
                 losses: Vec::new(),
                 lr: None,
+                elapsed: None,
+                vram_mb: None,
+                vram_peak_mb: None,
             }
         );
+    }
+
+    #[test]
+    fn parses_progress_telemetry() {
+        // 训练遥测：耗时与显存，缺字段时必须是 None 而不是解析失败
+        let e = parse_line(
+            r#"{"kind":"progress","step":1200,"total":4000,"elapsed":512.5,"vramMb":5830,"vramPeakMb":6102}"#,
+        )
+        .unwrap();
+        match e {
+            WorkerEvent::Progress {
+                elapsed,
+                vram_mb,
+                vram_peak_mb,
+                ..
+            } => {
+                assert_eq!(elapsed, Some(512.5));
+                assert_eq!(vram_mb, Some(5830));
+                assert_eq!(vram_peak_mb, Some(6102));
+            }
+            other => panic!("应解析为 Progress，实际 {other:?}"),
+        }
     }
 
     #[test]

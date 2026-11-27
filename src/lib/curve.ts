@@ -9,6 +9,75 @@ import type { JobEvent } from "@/types";
  */
 export const LOSS_STROKE = "rgb(var(--accent, 214 106 58))";
 
+/** 训练遥测：从 CURVE 事件里取出耗时与显存，算 ETA。缺字段（旧任务）时返回 null。 */
+export interface TrainingTelemetry {
+  lastStep: number | null;
+  secPerStep: number | null;
+  etaSec: number | null;
+  vramPeakMb: number | null;
+  vramMb: number | null;
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function parseTrainingTelemetry(events: JobEvent[], total: number | null): TrainingTelemetry {
+  let firstStep: number | null = null;
+  let firstElapsed: number | null = null;
+  let lastStep: number | null = null;
+  let lastElapsed: number | null = null;
+  let vramPeak: number | null = null;
+  let vramNow: number | null = null;
+
+  for (const event of events) {
+    if (event.code !== "CURVE" || !event.dataJson) continue;
+    let data: { step?: unknown; elapsed?: unknown; vramMb?: unknown; vramPeakMb?: unknown };
+    try {
+      data = JSON.parse(event.dataJson);
+    } catch {
+      continue;
+    }
+    const step = num(data.step);
+    const elapsed = num(data.elapsed);
+    const peak = num(data.vramPeakMb);
+    const current = num(data.vramMb);
+    if (peak != null) vramPeak = vramPeak == null ? peak : Math.max(vramPeak, peak);
+    if (current != null) vramNow = current;
+    if (step == null) continue;
+    lastStep = step;
+    if (elapsed == null) continue;
+    lastElapsed = elapsed;
+    if (firstStep == null) {
+      firstStep = step;
+      firstElapsed = elapsed;
+    }
+  }
+
+  let secPerStep: number | null = null;
+  if (
+    lastStep != null &&
+    lastElapsed != null &&
+    firstStep != null &&
+    firstElapsed != null &&
+    lastStep > firstStep &&
+    lastElapsed > firstElapsed
+  ) {
+    secPerStep = (lastElapsed - firstElapsed) / (lastStep - firstStep);
+  }
+  let etaSec: number | null = null;
+  if (secPerStep != null && lastStep != null && total != null && total > lastStep) {
+    etaSec = (total - lastStep) * secPerStep;
+  }
+  return {
+    lastStep,
+    secPerStep,
+    etaSec,
+    vramPeakMb: vramPeak,
+    vramMb: vramNow,
+  };
+}
+
 export interface LossPoint {
   step: number;
   value: number;

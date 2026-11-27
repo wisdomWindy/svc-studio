@@ -237,7 +237,7 @@ async fn run_attempt(
             event = handle.events().recv() => {
                 match event {
                     None => return outcome,
-                    Some(WorkerEvent::Progress { step, total, losses, lr, .. }) => {
+                    Some(WorkerEvent::Progress { step, total, losses, lr, elapsed, vram_mb, vram_peak_mb, .. }) => {
                         outcome.last_step = step;
                         let ratio = if total > 0 { (step as f64 / total as f64).clamp(0.0, 0.99) } else { 0.0 };
                         let _ = db.with(|c| jobs::set_progress(c, job, ratio, Some(step), Some(total)));
@@ -248,6 +248,10 @@ async fn run_attempt(
                                 "step": step,
                                 "losses": losses,
                                 "lr": lr,
+                                // 遥测：界面据此算 ETA（elapsed+step）、显示显存峰值
+                                "elapsed": elapsed,
+                                "vramMb": vram_mb,
+                                "vramPeakMb": vram_peak_mb,
                             });
                             let _ = db.with(|c| {
                                 jobs::append_event(

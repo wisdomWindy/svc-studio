@@ -4,8 +4,8 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { backend, type CheckpointInfo, type Recommend } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
-import { formatBytes, statusLabel } from "@/lib/format";
-import { LOSS_STROKE, parseLossSeries, sparklinePath } from "@/lib/curve";
+import { formatBytes, formatDuration, statusLabel } from "@/lib/format";
+import { LOSS_STROKE, parseLossSeries, parseTrainingTelemetry, sparklinePath } from "@/lib/curve";
 import type { JobEvent } from "@/types";
 import { toErrorText } from "@/lib/errors";
 
@@ -356,6 +356,60 @@ export function TrainingPage() {
       )}
       {message && <p className="mb-2 text-[12px] text-ok">{message}</p>}
       {error && <ErrorNotice error={error} compact />}
+
+      {(() => {
+        const telemetry = parseTrainingTelemetry(events, progress.total);
+        if (progress.step == null && telemetry.lastStep == null) return null;
+        const percent =
+          progress.step != null && progress.total
+            ? Math.min(100, Math.round((progress.step / progress.total) * 100))
+            : null;
+        const vramGb =
+          telemetry.vramPeakMb != null
+            ? `${(telemetry.vramPeakMb / 1024).toFixed(2)} GB`
+            : "—";
+        return (
+          <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="rounded-lg border border-line bg-surface p-3">
+              <div className="text-[11px] text-muted">当前步数</div>
+              <div className="mt-1 text-[18px] font-semibold tabular">
+                {progress.step ?? telemetry.lastStep ?? 0}
+                {progress.total ? <span className="text-[12px] text-muted"> / {progress.total}</span> : null}
+              </div>
+              {percent != null && (
+                <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-raised">
+                  <div className="h-full rounded-full bg-accent" style={{ width: `${percent}%` }} />
+                </div>
+              )}
+            </div>
+            <div className="rounded-lg border border-line bg-surface p-3">
+              <div className="text-[11px] text-muted">预计剩余</div>
+              <div className="mt-1 text-[18px] font-semibold tabular">
+                {telemetry.etaSec != null ? formatDuration(telemetry.etaSec) : "—"}
+              </div>
+              <div className="mt-1 text-[11px] text-muted">
+                {telemetry.secPerStep != null ? `${telemetry.secPerStep.toFixed(2)} s/步` : "采集中…"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-surface p-3">
+              <div className="text-[11px] text-muted">显存峰值</div>
+              <div className="mt-1 text-[18px] font-semibold tabular">{vramGb}</div>
+              <div className="mt-1 text-[11px] text-muted">
+                {telemetry.vramMb != null ? `当前 ${(telemetry.vramMb / 1024).toFixed(2)} GB` : "未采样"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-surface p-3">
+              <div className="text-[11px] text-muted">参数推荐</div>
+              <div className="mt-1 text-[18px] font-semibold tabular">
+                {recommend ? `${recommend.batchSize} batch` : "—"}
+              </div>
+              <div className="mt-1 text-[11px] text-muted">
+                {recommend ? `duration ${recommend.diffusionDuration}s · 进程 ${recommend.numProcesses}` : "读取中…"}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
         <div className="space-y-3">

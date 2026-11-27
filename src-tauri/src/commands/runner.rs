@@ -299,6 +299,9 @@ mod tests {
                 total: 10,
                 losses: Vec::new(),
                 lr: None,
+                elapsed: None,
+                vram_mb: None,
+                vram_peak_mb: None,
             },
         )
         .unwrap();

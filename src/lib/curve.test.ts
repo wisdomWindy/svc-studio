@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LOSS_STROKE, parseLossSeries, sparklinePath } from "./curve";
+import { LOSS_STROKE, parseLossSeries, parseTrainingTelemetry, sparklinePath } from "./curve";
 import type { JobEvent } from "@/types";
 
 function curveEvent(step: number, losses: unknown[], seq = step): JobEvent {
@@ -59,5 +59,51 @@ describe("loss 曲线", () => {
     expect(LOSS_STROKE.startsWith("rgb(")).toBe(true);
     expect(LOSS_STROKE).toContain("var(--accent");
     expect(LOSS_STROKE).not.toMatch(/^var\(/);
+  });
+});
+
+describe("训练遥测（ETA / 显存）", () => {
+  const withTelemetry = (step: number, elapsed: number, vramPeakMb?: number, seq = step): JobEvent => ({
+    seq,
+    ts: "2026-11-27T12:00:00.000Z",
+    level: "debug",
+    code: "CURVE",
+    message: "loss",
+    dataJson: JSON.stringify({ step, losses: [1.0], lr: 0.0001, elapsed, vramMb: 5000, vramPeakMb }),
+  });
+
+  it("由两个采样点算出每步耗时与剩余时间", () => {
+    // 100 步用了 200 秒 → 2 s/步；总 1000 步 → 剩余 900 步 = 1800 秒
+    const t = parseTrainingTelemetry(
+      [withTelemetry(1000, 100), withTelemetry(1100, 300)],
+      2000,
+    );
+    expect(t.secPerStep).toBeCloseTo(2.0, 3);
+    expect(t.etaSec).toBeCloseTo(1800, 1);
+    expect(t.lastStep).toBe(1100);
+  });
+
+  it("只有一个采样点时只有 s/步为空、不瞎算 ETA", () => {
+    const t = parseTrainingTelemetry([withTelemetry(500, 60)], 1000);
+    expect(t.secPerStep).toBeNull();
+    expect(t.etaSec).toBeNull();
+  });
+
+  it("显存峰值取最大值，当前值取最后一个", () => {
+    const t = parseTrainingTelemetry(
+      [withTelemetry(100, 10, 5000), withTelemetry(200, 20, 6100), withTelemetry(300, 30, 5800)],
+      1000,
+    );
+    expect(t.vramPeakMb).toBe(6100);
+    expect(t.vramMb).toBe(5000);
+  });
+
+  it("旧任务（无 elapsed/vram）返回空值，不抛错", () => {
+    const old = { ...withTelemetry(100, 10) };
+    old.dataJson = JSON.stringify({ step: 100, losses: [1.0] });
+    const t = parseTrainingTelemetry([old], 1000);
+    expect(t.secPerStep).toBeNull();
+    expect(t.etaSec).toBeNull();
+    expect(t.vramPeakMb).toBeNull();
   });
 });
