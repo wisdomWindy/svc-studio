@@ -21,11 +21,15 @@ export interface AdvParams {
   shallowDiffusion: boolean;
   enhance: boolean;
   featureRetrieval: boolean;
+  /** 升调建议的目标基频（Hz）；只用于报告的「建议变调」，不参与转换 */
+  targetF0: number;
 }
 
 /** 推理高级参数：默认值来自上游 4.8.1 的推荐档 */
 export const DEFAULT_ADV: AdvParams = {
-  noiseScale: 0.4,
+  // 实测：noiseScale 0.1 比 0.4 的 CPP（倒谱峰突出，越大越不沙哑）高约 2 dB
+  noiseScale: 0.1,
+  // 没有聚类模型时上游会静默忽略该值，默认给 0 避免误导
   clusterInferRatio: 0,
   kStep: 100,
   sliceDb: -40,
@@ -34,6 +38,7 @@ export const DEFAULT_ADV: AdvParams = {
   shallowDiffusion: false,
   enhance: false,
   featureRetrieval: false,
+  targetF0: 300,
 };
 
 export function InferencePage() {
@@ -163,6 +168,8 @@ export function InferencePage() {
         shallowDiffusion: adv.shallowDiffusion,
         enhance: adv.enhance,
         featureRetrieval: adv.featureRetrieval,
+        // 只用于报告里的「建议变调」，不参与转换本身
+        targetF0: adv.targetF0,
       };
       const job = await backend.inferStart(project.id, modelId, inputs, params, null, "batch");
       setMessage(`推理已提交：${job}`);
@@ -394,6 +401,10 @@ export function InferencePage() {
               onChange={(e) => setTrans(Number(e.target.value))}
               className="mt-1 w-full rounded-md border border-line bg-raised px-2 py-1 text-[12px]"
             />
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              源基频落在模型训练音域之外时，输出会明显沙哑。跑完一次后，下方「F0 审计」会显示
+              「源 → 升调后 → 实测」，实测偏离说明变调没生效。
+            </p>
           </label>
           <label className="mt-2 block text-[12px]">
             <span className="text-muted">F0 预测器</span>
@@ -456,6 +467,59 @@ export function InferencePage() {
                     output={(item?.output as string) ?? null}
                   />
                 </div>
+                {(() => {
+                  const audit = (item?.f0 ?? null) as null | {
+                    beforeHz?: number | null;
+                    expectedHz?: number | null;
+                    afterHz?: number | null;
+                    transSemitones?: number;
+                    applied?: boolean | null;
+                    shiftSemitones?: number | null;
+                    registerMismatch?: boolean;
+                    suggestTransSemitones?: number | null;
+                    targetHz?: number | null;
+                  };
+                  if (!audit || audit.beforeHz == null) return null;
+                  const hz = (v: number | null | undefined) =>
+                    v == null || !Number.isFinite(v) ? "—" : `${Math.round(v)} Hz`;
+                  const warned = audit.applied === false || audit.registerMismatch === true;
+                  return (
+                    <div
+                      className={`mt-2 rounded-md border px-2 py-1.5 text-[11px] ${
+                        warned ? "border-warn/50 bg-warn/5" : "border-line bg-raised/40"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-muted">F0 审计</span>
+                        <span className="tabular">源 {hz(audit.beforeHz)}</span>
+                        <span className="text-muted">→</span>
+                        <span className="tabular">升调后 {hz(audit.expectedHz)}</span>
+                        <span className="text-muted">→</span>
+                        <span className="tabular">实测 {hz(audit.afterHz)}</span>
+                        {audit.applied === true && <span className="text-ok">✓ 变调生效</span>}
+                        {audit.registerMismatch && (
+                          <span className="text-warn">
+                            ⚠ 模型自行把音高搬到 {hz(audit.afterHz)}
+                            （源比模型音域低 {audit.shiftSemitones ?? "?"} 半音，易沙哑）
+                          </span>
+                        )}
+                        {!audit.registerMismatch && audit.applied === false && (
+                          <span className="text-warn">⚠ 实测偏离，变调可能没生效</span>
+                        )}
+                      </div>
+                      {audit.suggestTransSemitones != null && (
+                        <p className="mt-1 leading-relaxed text-muted">
+                          建议变调{" "}
+                          <span className="tabular text-ink">
+                            {audit.suggestTransSemitones > 0 ? "+" : ""}
+                            {audit.suggestTransSemitones} 半音
+                          </span>
+                          ，把输出基频移到 {hz(audit.targetHz)} 附近。
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}

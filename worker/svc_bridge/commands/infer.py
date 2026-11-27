@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import time
@@ -79,6 +80,71 @@ def to_svc_kwargs(params: Dict[str, Any], spk: str, raw_audio_path: Path) -> Dic
         "use_spk_mix": bool(params.get("useSpkMix")),
         "second_encoding": bool(params.get("secondEncoding")),
         "loudness_envelope_adjustment": float(params.get("loudnessEnvelopeAdjustment") or 1.0),
+    }
+
+
+def _f0_median(path: Path, fmin: float = 60.0, fmax: float = 1100.0) -> Optional[float]:
+    """测一段音频的基频中位（Hz）；失败返回 None（审计用，绝不能影响推理）。"""
+    try:
+        import librosa  # type: ignore
+        import numpy as np
+
+        data, sr = librosa.load(str(path), sr=22050, mono=True)
+        if len(data) < sr // 2:
+            return None
+        f0, voiced, _ = librosa.pyin(
+            data, fmin=fmin, fmax=fmax, sr=sr, frame_length=2048, hop_length=512
+        )
+        mask = voiced & np.isfinite(f0) & (f0 > 0)
+        return float(np.median(f0[mask])) if bool(mask.any()) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _f0_audit(
+    before_path: Path, after_path: Path, trans: int, target_hz: float
+) -> Dict[str, Any]:
+    """F0 审计：源 → 期望（理论升调）→ 输出实测，并给升调建议。
+
+    `applied` 是这次推理最关键的诊断：如果实测输出没有按 trans 移动，
+    说明变调没生效（界面应给出警告，而不是让用户以为调过了）。
+    """
+    before = _f0_median(before_path)
+    after = _f0_median(after_path)
+    expected = before * 2 ** (trans / 12.0) if before else None
+    applied: Optional[bool] = None
+    if before and expected and after:
+        # 允许 1.5 半音误差（约 9%）:分离/混音会轻微影响基频估计
+        applied = abs(12 * math.log2(after / expected)) <= 1.5
+
+    # 模型自行重定音高：trans=0 但输出明显偏离源音高（≥6 半音≈半个八度），
+    # 说明源音高远在模型训练音域之外，模型把它"搬"进了自己的音域——
+    # 这是沙哑的典型成因，必须单独标出来，不能只报"变调没生效"。
+    register_mismatch = False
+    shift_semitones: Optional[float] = None
+    if before and after:
+        shift_semitones = round(12 * math.log2(after / before), 1)
+        if trans == 0 and abs(shift_semitones) >= 6:
+            register_mismatch = True
+
+    # 升调建议以「实际落点」为准：模型可能已经自己搬了音高，
+    # 这时再按源音高给建议（比如 +22）会把用户带偏。
+    anchor = after if after else before
+    suggest = None
+    if anchor and anchor > 0 and target_hz > 0:
+        semis = round(12 * math.log2(target_hz / anchor))
+        if abs(semis) >= 2:
+            suggest = semis
+    return {
+        "beforeHz": round(before, 1) if before else None,
+        "expectedHz": round(expected, 1) if expected else None,
+        "afterHz": round(after, 1) if after else None,
+        "transSemitones": trans,
+        "applied": applied,
+        "shiftSemitones": shift_semitones,
+        "registerMismatch": register_mismatch,
+        "suggestTransSemitones": suggest,
+        "targetHz": round(target_hz, 1),
     }
 
 
@@ -342,6 +408,13 @@ def run_batch(
                     "secondsOut": round(seconds_out, 3),
                     "peakDbfs": round(_peak_dbfs(out_path), 2),
                     "clipRatio": round(_clip_ratio(out_path), 6),
+                    # F0 审计：源 → 期望（升调后）→ 输出实测；applied=False 说明变调没生效
+                    "f0": _f0_audit(
+                        source_for_infer,
+                        converted,
+                        int(params.get("trans") or 0),
+                        float(params.get("targetF0") or 300.0),
+                    ),
                 }
             )
         except Exception as exc:  # noqa: BLE001 - 单条失败不能拖垮批次
