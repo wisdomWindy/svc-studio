@@ -109,12 +109,25 @@ fn _worker_paths_unused() -> (PathBuf, PathBuf) {
     (resolve_python(), resolve_worker_dir())
 }
 
-/// 可取消的一次性 CLI：取消时杀掉整棵进程树。返回 (value, exit_code, cancelled)。
-pub async fn run_cli_cancellable(
+/// 事件名：与 worker 的 `rpc.emit_progress` 对应。
+fn progress_event(line: &str) -> Option<Value> {
+    let value: Value = serde_json::from_str(line.trim()).ok()?;
+    (value.get("kind").and_then(Value::as_str) == Some("progress")).then_some(value)
+}
+
+/// 可取消的一次性 CLI，边跑边把 `kind=progress` 事件交给回调。
+///
+/// worker 以 `--events` 运行时 stdout 是「JSON Lines 协议」：进度事件逐行推送，
+/// 最后一条 `kind=result` 带最终结果。这样长任务（预处理 489 个切片要 6 分钟）
+/// 才能把进度写进 DB，而不是一直 0% 直到结束。
+pub async fn run_cli_cancellable_with_progress(
     args: &[&str],
     cancel: tokio::sync::oneshot::Receiver<()>,
+    on_progress: std::sync::Arc<dyn Fn(&Value) + Send + Sync>,
 ) -> AppResult<(Value, Option<i32>, bool)> {
-    use std::process::Stdio;
+    use std::{process::Stdio, sync::Arc};
+
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
     let python = resolve_python();
     let worker = resolve_worker_dir();
@@ -127,7 +140,7 @@ pub async fn run_cli_cancellable(
         cmd.env(k, v);
     }
 
-    let child = cmd.spawn().map_err(|e| {
+    let mut child = cmd.spawn().map_err(|e| {
         Box::new(AppError::new(
             "SVC-1001",
             "无法启动 worker",
@@ -135,26 +148,79 @@ pub async fn run_cli_cancellable(
         ))
     })?;
     let pid = child.id();
+    let stdout = child.stdout.take().ok_or_else(|| {
+        Box::new(AppError::new("SVC-1001", "worker 输出不可用", "stdout"))
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        Box::new(AppError::new("SVC-1001", "worker 输出不可用", "stderr"))
+    })?;
+
+    let stderr_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        let _ = BufReader::new(stderr).read_to_end(&mut buf).await;
+        String::from_utf8_lossy(&buf).to_string()
+    });
+
+    let progress = Arc::clone(&on_progress);
+    let reader = tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        let mut raw = String::new();
+        let mut result: Option<Value> = None;
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match progress_event(&line) {
+                Some(event) => progress(&event),
+                None => {
+                    let value: Value = match serde_json::from_str(line.trim()) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            raw.push_str(&line);
+                            raw.push('\n');
+                            continue;
+                        }
+                    };
+                    match value.get("kind").and_then(Value::as_str) {
+                        Some("result") => result = value.get("data").cloned(),
+                        _ => {
+                            raw.push_str(&line);
+                            raw.push('\n');
+                        }
+                    }
+                }
+            }
+        }
+        (result, raw)
+    });
 
     tokio::select! {
-        out = child.wait_with_output() => {
-            let output = out.map_err(|e| {
+        status = child.wait() => {
+            let status = status.map_err(|e| {
                 Box::new(AppError::new("SVC-1001", "worker 运行失败", e.to_string()))
             })?;
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-                Box::new(AppError::new(
-                    "SVC-1001",
-                    "worker 输出无法解析",
-                    format!("{e}; stderr={}", String::from_utf8_lossy(&output.stderr)),
-                ))
+            let (result, raw) = reader.await.map_err(|e| {
+                Box::new(AppError::new("SVC-1001", "worker 输出读取失败", e.to_string()))
             })?;
-            Ok((value, output.status.code(), false))
+            let stderr = stderr_task.await.unwrap_or_default();
+            let value = match result {
+                Some(value) => value,
+                None => parse_json_output(&raw).map_err(|e| {
+                    Box::new(AppError::new(
+                        "SVC-1001",
+                        "worker 输出无法解析",
+                        format!("{e}; stderr={stderr}"),
+                    ))
+                })?,
+            };
+            Ok((value, status.code(), false))
         }
         _ = cancel => {
             if let Some(pid) = pid {
                 crate::core::proc::kill_tree(pid);
             }
+            reader.abort();
+            stderr_task.abort();
             Ok((Value::Null, None, true))
         }
     }
@@ -192,5 +258,19 @@ mod tests {
     fn fails_when_there_is_no_json_at_all() {
         let err = parse_json_output("totally not json\nstill not").unwrap_err();
         assert!(format!("{err}").contains("expected value") || format!("{err}").contains("line"));
+    }
+
+    #[test]
+    fn extracts_progress_events_and_ignores_other_lines() {
+        let event = progress_event(
+            r#"{"v":1,"kind":"progress","stage":"hubert_f0","step":120,"total":489}"#,
+        )
+        .expect("进度行应被识别");
+        assert_eq!(event["stage"], "hubert_f0");
+        assert_eq!(event["step"], 120);
+        assert_eq!(event["total"], 489);
+
+        assert!(progress_event(r#"{"kind":"result","data":{}}"#).is_none());
+        assert!(progress_event("[separate] 普通日志").is_none());
     }
 }

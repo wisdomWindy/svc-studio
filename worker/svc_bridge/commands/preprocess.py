@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -142,6 +143,64 @@ def _dataset_dir(project: Path) -> Path:
     return project / "dataset" / "44k"
 
 
+def _count_wavs(root: Path) -> int:
+    if not root.is_dir():
+        return 0
+    return sum(1 for path in root.rglob("*.wav") if path.is_file())
+
+
+def _step_total(step_name: str, project_path: Path) -> int:
+    """这一步一共有多少份工作。resample 看原始素材，hubert_f0 看 44k 切片。"""
+    if step_name == "resample":
+        return max(_count_wavs(project_path / "dataset_raw"), _count_wavs(_dataset_dir(project_path)))
+    if step_name == "hubert_f0":
+        return _count_wavs(_dataset_dir(project_path))
+    return 1
+
+
+def _step_done(step_name: str, project_path: Path) -> int:
+    """已经产出多少份。hubert_f0 以 .f0.npy 为准（每份 wav 对应一个）。"""
+    if step_name == "resample":
+        return _count_wavs(_dataset_dir(project_path))
+    if step_name == "hubert_f0":
+        dataset = _dataset_dir(project_path)
+        if not dataset.is_dir():
+            return 0
+        return sum(1 for path in dataset.rglob("*.f0.npy") if path.is_file())
+    return 1
+
+
+def _emit_step_progress(step_name: str, project_path: Path) -> None:
+    from .. import rpc
+
+    total = _step_total(step_name, project_path)
+    done = min(_step_done(step_name, project_path), total)
+    rpc.emit_progress(step_name, done, total)
+
+
+def _start_progress_poller(step_name: str, project_path: Path, stop: "threading.Event") -> "threading.Thread":
+    """轮询产物数量上报进度：上游脚本只打 tqdm 到 stderr，靠产物数最稳。"""
+
+    def poll() -> None:
+        last = -1
+        while not stop.wait(0.5):
+            try:
+                total = _step_total(step_name, project_path)
+                done = min(_step_done(step_name, project_path), total)
+            except Exception:  # noqa: BLE001 - 统计失败不能影响真正的工作
+                continue
+            if done != last:
+                from .. import rpc
+
+                rpc.emit_progress(step_name, done, total)
+                last = done
+
+    thread = threading.Thread(target=poll, name=f"progress-{step_name}", daemon=True)
+    thread.start()
+    return thread
+
+
+
 def _min_clip_seconds(dataset_dir: Path) -> float:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -216,6 +275,7 @@ def run_chain(
     vol_aug: bool = False,
     runner: Optional[Runner] = None,
     manifest_path: Optional[str] = None,
+    events: bool = False,
 ) -> Dict[str, Any]:
     project_path = Path(project)
     _ensure_project_dirs(project)
@@ -256,19 +316,33 @@ def run_chain(
     failed_step: Optional[str] = None
     for step in steps:
         started = _now()
-        if runner is None:
-            import subprocess
+        if events:
+            _emit_step_progress(step["name"], project_path)
+        stop = threading.Event()
+        poller = _start_progress_poller(step["name"], project_path, stop) if events else None
+        try:
+            if runner is None:
+                import subprocess
 
-            from ..procwin import no_window_kwargs
+                from ..procwin import no_window_kwargs
 
-            code = subprocess.run(
-                step["argv"],
-                cwd=str(step["cwd"]),
-                env={**os.environ, **env},
-                **no_window_kwargs(),
-            ).returncode
-        else:
-            code = runner(step["argv"], step["cwd"], env)
+                code = subprocess.run(
+                    step["argv"],
+                    cwd=str(step["cwd"]),
+                    env={**os.environ, **env},
+                    # --events 模式下 stdout 只留给协议行，上游自己的 print 必须丢掉
+                    stdout=subprocess.DEVNULL if events else None,
+                    **no_window_kwargs(),
+                ).returncode
+            else:
+                code = runner(step["argv"], step["cwd"], env)
+        finally:
+            stop.set()
+            if poller is not None:
+                poller.join(timeout=2.0)
+            if events:
+                # 收尾补一条，保证每步都以 N/N 结束
+                _emit_step_progress(step["name"], project_path)
         finished = _now()
         executed.append(
             {
@@ -344,6 +418,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--use-diff", action="store_true")
     parser.add_argument("--vol-aug", action="store_true")
     parser.add_argument("--manifest", default="")
+    parser.add_argument("--events", action="store_true", help="逐步输出进度事件")
     args = parser.parse_args(argv)
 
     manifest = run_chain(
@@ -355,9 +430,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.use_diff,
         args.vol_aug,
         manifest_path=args.manifest or None,
+        events=bool(getattr(args, "events", False)),
     )
-    sys.stdout.buffer.write(json.dumps(manifest, ensure_ascii=False).encode("utf-8") + b"\n")
-    sys.stdout.buffer.flush()
+    if getattr(args, "events", False):
+        # --events 模式：进度事件之后以单条 result 收尾（Rust 侧据此收结果）
+        from .. import rpc
+
+        rpc.emit("result", data=manifest)
+    else:
+        sys.stdout.buffer.write(json.dumps(manifest, ensure_ascii=False).encode("utf-8") + b"\n")
+        sys.stdout.buffer.flush()
     if manifest["passed"]:
         return exit_codes.OK
     return exit_codes.PREPROCESS

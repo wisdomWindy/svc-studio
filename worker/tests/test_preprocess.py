@@ -183,3 +183,38 @@ def test_rerun_does_not_duplicate_products(project: Path, upstream: Path) -> Non
     assert second["counts"]["soft"] == 1
     assert second["passed"] is True
     assert second["diffs"] == []
+
+def test_events_mode_streams_per_stage_progress(project: Path, upstream: Path, capsys) -> None:
+    """--events 模式要按阶段/逐文件推进度，Rust 侧才能把 0% 变成动态百分比。"""
+    dataset = project / "dataset" / "44k" / "spk"
+    raw = project / "dataset_raw" / "spk"
+    raw.mkdir(parents=True, exist_ok=True)
+    for index in range(3):
+        write_tone(raw / f"{index}.wav")
+
+    def fake_runner(argv, cwd, env):
+        name = Path(argv[1]).name
+        for index in range(3):
+            write_tone(dataset / f"{index}.wav")
+            if name == "preprocess_hubert_f0.py":
+                (dataset / f"{index}.wav.soft.pt").write_bytes(b"x")
+                (dataset / f"{index}.wav.f0.npy").write_bytes(b"x")
+                (dataset / f"{index}.wav.spec.pt").write_bytes(b"x")
+        return 0
+
+    preprocess.run_chain(str(project), str(upstream), runner=fake_runner, events=True)
+
+    lines = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip()
+    ]
+    progress = [line for line in lines if line.get("kind") == "progress"]
+    assert {item["stage"] for item in progress} == {
+        "resample",
+        "flist_config",
+        "hubert_f0",
+    }
+    hubert = [item for item in progress if item["stage"] == "hubert_f0"]
+    assert hubert[0]["step"] == 0
+    assert (hubert[-1]["step"], hubert[-1]["total"]) == (3, 3)

@@ -215,6 +215,7 @@ pub(crate) fn preprocess_start_impl(
             procs.to_string(),
             "--manifest".to_string(),
             manifest_path.clone(),
+            "--events".to_string(),
         ];
         let mut args = args;
         if use_diff {
@@ -225,9 +226,37 @@ pub(crate) fn preprocess_start_impl(
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
+        // worker 以 --events 逐行推进度；把每一步折算成整条链路的百分比写进 DB，
+        // 任务页每 3 秒轮询一次，进度条因此能真的从 0% 爬到 100%。
+        let progress_db = db.clone();
+        let progress_job = job_for_task.clone();
+        let on_progress: std::sync::Arc<dyn Fn(&Value) + Send + Sync> =
+            std::sync::Arc::new(move |event: &Value| {
+                let stage = event.get("stage").and_then(Value::as_str).unwrap_or_default();
+                let step = event.get("step").and_then(Value::as_u64).unwrap_or(0);
+                let total = event.get("total").and_then(Value::as_u64).unwrap_or(0);
+                let Some(ratio) = stage_ratio(stage, step, total) else {
+                    return;
+                };
+                let _ = progress_db.with(|c| {
+                    jobs::set_progress(
+                        c,
+                        &progress_job,
+                        ratio,
+                        Some(step as i64),
+                        Some(total as i64),
+                    )
+                });
+            });
+
         // 预处理不做超时判定：跑多久等多久；用户可随时取消（杀进程树）
         let cancel_rx = running.register(&job_for_task);
-        let result = crate::core::worker_cli::run_cli_cancellable(&arg_refs, cancel_rx).await;
+        let result = crate::core::worker_cli::run_cli_cancellable_with_progress(
+            &arg_refs,
+            cancel_rx,
+            on_progress,
+        )
+        .await;
         if let Ok((_, _, true)) = &result {
             let now = now_iso();
             let _ = db.with(|c| {
@@ -453,6 +482,42 @@ mod tests {
             .any(|b| b["code"] == serde_json::json!("SVC-4002")));
         let _ = std::fs::remove_dir_all(base);
     }
+
+    #[test]
+    fn maps_preprocess_stages_into_disjoint_progress_ranges() {
+        assert_eq!(stage_ratio("resample", 0, 100), Some(0.0));
+        assert_eq!(stage_ratio("resample", 100, 100), Some(0.10));
+        assert_eq!(stage_ratio("flist_config", 1, 1), Some(0.15));
+        assert_eq!(stage_ratio("hubert_f0", 0, 489), Some(0.15));
+        assert_eq!(stage_ratio("hubert_f0", 489, 489), Some(0.98));
+
+        let halfway = stage_ratio("hubert_f0", 245, 489).expect("进度应可折算");
+        assert!(halfway > 0.5 && halfway < 0.6, "halfway={halfway}");
+
+        // 空目录、或者上游多报了几个产物，都不能越过 100%
+        assert_eq!(stage_ratio("hubert_f0", 0, 0), Some(0.15));
+        assert_eq!(stage_ratio("hubert_f0", 999, 100), Some(0.98));
+        assert_eq!(stage_ratio("unknown-stage", 1, 2), None);
+    }
+}
+
+/// 把预处理每一步折算成整条链路上的进度区间。
+///
+/// resample 和 flist_config 都很快，hubert_f0 才是大头（489 个切片约 6 分钟），
+/// 所以前三步只占前 15%，给 hubert_f0 留 15%–98%；最后 1.0 在任务完成时写入。
+fn stage_ratio(stage: &str, step: u64, total: u64) -> Option<f64> {
+    let (start, end) = match stage {
+        "resample" => (0.0_f64, 0.10_f64),
+        "flist_config" => (0.10, 0.15),
+        "hubert_f0" => (0.15, 0.98),
+        _ => return None,
+    };
+    let fraction = if total == 0 {
+        0.0
+    } else {
+        (step.min(total) as f64 / total as f64).clamp(0.0, 1.0)
+    };
+    Some((start + (end - start) * fraction).clamp(0.0, 0.98))
 }
 
 /// 最近一次 QC 结论：None 表示从未跑过。
