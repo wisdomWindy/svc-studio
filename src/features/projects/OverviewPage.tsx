@@ -6,7 +6,37 @@ import { backend } from "@/lib/backend";
 import { useAsyncAction } from "@/lib/hooks";
 import { useAppStore } from "@/lib/store";
 import { formatClock, statusLabel } from "@/lib/format";
-import type { CreateProjectInput } from "@/types";
+import type { CreateProjectInput, Job } from "@/types";
+
+/** 正在跑的任务 → 卡片上显示的短标签 */
+const JOB_LABEL: Record<string, string> = {
+  dataset_import: "导入中",
+  dataset_qc: "质检中",
+  dataset_slice: "切片中",
+  resample: "重采样中",
+  preprocess: "预处理中",
+  train_smoke: "冒烟训练中",
+  train_main: "训练中",
+  train_diffusion: "训练扩散中",
+  train_cluster: "聚类中",
+  train_index: "建索引中",
+  inference: "推理中",
+  model_import: "导入模型中",
+  model_compress: "压缩模型中",
+};
+
+export function isActive(job: Job): boolean {
+  return job.status === "running" || job.status === "queued";
+}
+
+/** 任务的完成度百分比：优先用 step/total（训练），否则用 progress */
+export function jobPercent(job: Job): number {
+  if (job.step != null && job.total != null && job.total > 0) {
+    return Math.min(100, Math.round((job.step / job.total) * 100));
+  }
+  return Math.min(100, Math.max(0, Math.round(job.progress)));
+}
+
 
 const ENCODERS = [
   "vec768l12",
@@ -34,11 +64,24 @@ export function OverviewPage() {
   const load = useAsyncAction(backend.listProjects);
   const create = useAsyncAction(backend.createProject);
   const remove = useAsyncAction(backend.deleteProject);
+  const [jobs, setJobs] = useState<Job[]>([]);
 
   useEffect(() => {
     void load.run().then((result) => result && setProjects(result));
+    // 卡片要显示「训练中 31%」这类实时进度，所以顺带拉一次任务列表
+    void backend
+      .listJobs(200)
+      .then(setJobs)
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** 该项目当前正在跑的任务（可能多项，取最近启动的一个） */
+  function activeJobOf(projectId: string): Job | undefined {
+    return jobs
+      .filter((job) => job.projectId === projectId && isActive(job))
+      .sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))[0];
+  }
 
   async function submit() {
     const result = await create.run({
@@ -169,35 +212,51 @@ export function OverviewPage() {
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {projects.map((project) => (
-            <div
-              key={project.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => selectProject(project.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  selectProject(project.id);
-                }
-              }}
-              className={`rounded-lg border p-3.5 text-left transition-colors ${
-                project.id === activeProjectId
-                  ? "border-accent/70 bg-surface"
-                  : "border-line bg-surface hover:border-line/80"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-[13px] font-medium">{project.name}</span>
-                <span className="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">
-                  {statusLabel(project.status)}
-                </span>
-              </div>
-              <div className="mt-1 truncate text-[11px] text-muted">{project.speechEncoder} · {project.f0Predictor}</div>
-              <div className="mt-2 flex items-center justify-between text-[11px] text-muted">
-                <span>{project.materialType === "singing" ? "歌声" : "语音"}</span>
-                <span>{formatClock(project.createdAt)}</span>
-              </div>
+          {projects.map((project) => {
+            const job = activeJobOf(project.id);
+            const percent = job ? jobPercent(job) : null;
+            return (
+              <div
+                key={project.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => selectProject(project.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    selectProject(project.id);
+                  }
+                }}
+                className={`rounded-lg border p-3.5 text-left transition-colors ${
+                  project.id === activeProjectId
+                    ? "border-accent/70 bg-surface"
+                    : "border-line bg-surface hover:border-line/80"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-medium">{project.name}</span>
+                  {job ? (
+                    <span className="flex shrink-0 items-center gap-1.5 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                      {JOB_LABEL[job.type] ?? "运行中"}
+                      {percent != null && <span className="tabular">{percent}%</span>}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">
+                      {statusLabel(project.status)}
+                    </span>
+                  )}
+                </div>
+                {job && percent != null && (
+                  <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-raised">
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${percent}%` }} />
+                  </div>
+                )}
+                <div className="mt-1 truncate text-[11px] text-muted">{project.speechEncoder} · {project.f0Predictor}</div>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-muted">
+                  <span>{project.materialType === "singing" ? "歌声" : "语音"}</span>
+                  <span>{formatClock(project.createdAt)}</span>
+                </div>
               <div className="mt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -220,8 +279,9 @@ export function OverviewPage() {
                   删除
                 </button>
               </div>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
     </>

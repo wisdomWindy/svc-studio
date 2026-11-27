@@ -283,6 +283,37 @@ pub fn delete_model(state: State<'_, AppPaths>, id: String) -> AppResult<()> {
     state.db.with(|c| models::delete(c, &id))
 }
 
+/// 按模型 id 跑一次 7 步兼容性检测（实例化 SynthesizerTrn、逐键比形状），
+/// 结果写回模型卡（compat_json + status），界面据此显示「兼容 / 缺 enc_q」。
+#[tauri::command]
+pub async fn model_compat(state: State<'_, AppPaths>, id: String) -> AppResult<serde_json::Value> {
+    let python = crate::commands::settings::python_for_state(&state)?;
+    let card = state
+        .db
+        .with(|c| models::get(c, &id))?
+        .ok_or_else(|| Box::new(AppError::new("SVC-7004", "模型不存在", id.clone())))?;
+    let model = std::path::PathBuf::from(&card.path);
+    let config = std::path::PathBuf::from(&card.config_path);
+    if !model.is_file() || !config.is_file() {
+        return Err(Box::new(AppError::new(
+            "SVC-2001",
+            "模型或配置文件不存在",
+            format!("{} / {}", model.display(), config.display()),
+        )));
+    }
+    let compat = crate::commands::inference::check_remote(&python, &model, &config).await?;
+    let verdict = compat
+        .get("verdict")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let text = serde_json::to_string(&compat).unwrap_or_default();
+    state
+        .db
+        .with(|c| models::set_compat(c, &id, &verdict, &text))?;
+    Ok(compat)
+}
+
 /// 把历史登记的模型（路径散落在 projects/logs 下）统一收进 data/models。
 /// 这样归档、滚动删除、项目迁移都不会再让模型失效。
 pub fn migrate_into_store(state: &crate::AppPaths) {

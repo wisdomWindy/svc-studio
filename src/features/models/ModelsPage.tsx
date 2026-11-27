@@ -17,6 +17,33 @@ const TONE: Record<string, string> = {
   muted: "text-muted",
 };
 
+/** 兼容性徽章：解析导入/检测时写入的 7 步判定报告 */
+export function compatBadge(compatJson: string) {
+  let verdict = "";
+  let missing: unknown[] = [];
+  try {
+    const parsed = JSON.parse(compatJson) as { verdict?: string; missingKeys?: unknown[] };
+    verdict = parsed.verdict ?? "";
+    missing = Array.isArray(parsed.missingKeys) ? parsed.missingKeys : [];
+  } catch {
+    return <span className="rounded bg-raised px-1.5 py-0.5 text-muted">兼容性报告损坏</span>;
+  }
+  if (verdict === "ready") {
+    return <span className="rounded bg-ok/15 px-1.5 py-0.5 text-ok">兼容 · 全部键命中</span>;
+  }
+  if (verdict === "compressed") {
+    return <span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn">兼容 · 已压缩</span>;
+  }
+  if (verdict === "incompatible") {
+    return (
+      <span className="rounded bg-danger/15 px-1.5 py-0.5 text-danger">
+        不兼容{missing.length > 0 ? ` · 缺 ${missing.length} 项` : ""}
+      </span>
+    );
+  }
+  return <span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn">未知（{verdict || "无判定"}）</span>;
+}
+
 export function ModelsPage() {
   const project = useActiveProject();
   const { models, setModels } = useAppStore();
@@ -183,9 +210,47 @@ export function ModelsPage() {
                 <span>{formatBytes(model.bytes)}</span>
                 <span className="uppercase">{model.source}</span>
               </div>
+
+              {/* 关联资产 + 兼容性：来自导入/检测时的 7 步判定（compat_json），没有就是未检测 */}
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+                <span>关联：</span>
+                <span className={model.diffusionPath ? "text-ok" : "text-muted"}>
+                  扩散 {model.diffusionPath ? "✓" : "—"}
+                </span>
+                <span className={model.clusterPath ? "text-ok" : "text-muted"}>
+                  聚类 {model.clusterPath ? "✓" : "—"}
+                </span>
+                <span className={model.indexPath ? "text-ok" : "text-muted"}>
+                  索引 {model.indexPath ? "✓" : "—"}
+                </span>
+                <span className="ml-auto">
+                  {model.compatJson ? (
+                    compatBadge(model.compatJson)
+                  ) : (
+                    <span className="rounded bg-raised px-1.5 py-0.5 text-muted">兼容性未检测</span>
+                  )}
+                </span>
+              </div>
+
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 <Button size="sm" disabled={defaultId === model.id} onClick={() => void makeDefault(model.id)}>
                   设为默认
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setMessage(null);
+                    setError(null);
+                    void backend
+                      .modelCompat(model.id)
+                      .then(() => {
+                        setMessage(`已检测「${model.name}」的兼容性`);
+                        return reload();
+                      })
+                      .catch((e) => setError(toErrorText(e)));
+                  }}
+                >
+                  检测兼容性
                 </Button>
                 <Button
                   size="sm"

@@ -459,6 +459,57 @@ export function TrainingPage() {
         );
       })()}
 
+      {(() => {
+        // 事件时间线：降档 / 重启 / 发散 / 当前步 —— 这些 worker 一直在发，之前埋在任务日志里
+        const KEY = /降档|降到|重试|重启|继续|发散|显存不足|NaN|OOM/;
+        const timeline = events
+          .filter((e) => e.code !== "CURVE" && (e.level !== "info" || KEY.test(e.message ?? "")))
+          .slice(-6);
+        if (timeline.length === 0 && progress.step == null) return null;
+        const clock = (ts: string) => {
+          const d = new Date(ts);
+          return Number.isNaN(d.getTime()) ? "" : d.toTimeString().slice(0, 8);
+        };
+        return (
+          <div className="mt-3 rounded-lg border border-line bg-surface p-3">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="font-medium">事件时间线</span>
+              <span className="text-[11px] text-muted">降档 / 重启 / 当前</span>
+            </div>
+            <ul className="mt-2 space-y-1.5 text-[12px]">
+              {timeline.map((e) => (
+                <li key={`${e.seq}-${e.code ?? ""}`} className="flex items-start gap-2">
+                  <span className="tabular shrink-0 text-[11px] text-muted">{clock(e.ts)}</span>
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+                      e.level === "error"
+                        ? "bg-danger/15 text-danger"
+                        : e.level === "warn"
+                          ? "bg-warn/15 text-warn"
+                          : "bg-raised text-muted"
+                    }`}
+                  >
+                    {KEY.test(e.message ?? "") ? "调整" : e.level === "error" ? "错误" : "提示"}
+                  </span>
+                  <span className="min-w-0 break-words text-muted">{e.message}</span>
+                </li>
+              ))}
+              {progress.step != null && (
+                <li className="flex items-start gap-2">
+                  <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">
+                    当前
+                  </span>
+                  <span className="tabular text-muted">
+                    第 {progress.step} 步{progress.total ? ` / ${progress.total}` : ""}
+                    {running ? " · 运行中" : " · 已停止"}
+                  </span>
+                </li>
+              )}
+            </ul>
+          </div>
+        );
+      })()}
+
       <p className="mt-3 text-[11px] text-muted">
         当前状态：{running ? "运行中" : statusLabel(jobId ? "succeeded" : "queued")}
           {progress.step != null && (

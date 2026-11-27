@@ -203,6 +203,8 @@ export const backend = {
 
   modelCheck: (modelPath: string, configPath: string) =>
     call<Record<string, unknown>>("model_check", { modelPath, configPath }),
+  /** 按模型 id 跑一次 7 步兼容性检测，并把结果写回模型卡 */
+  modelCompat: (id: string) => call<Record<string, unknown>>("model_compat", { id }),
   importModel: (paths: string[], trust: boolean) =>
     call<ImportResult>("import_model_upload", { paths, trust }),
 

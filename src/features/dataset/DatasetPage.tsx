@@ -220,6 +220,33 @@ export function DatasetPage() {
     }
   }
 
+  /** 重新跑一遍数据集处理链：分离 → 转码 → 切片 → 44.1k → 精修 → 清理 */
+  async function startPrepare() {
+    if (!project) return;
+    setBusy("prepare");
+    setError(null);
+    setImportNote(null);
+    try {
+      void backend.datasetPrepare(project.id, separateVocals).catch((e) => {
+        setError(toErrorText(e));
+      });
+      const prepared = await waitForPrepare(project.id);
+      const separated = Array.isArray(prepared.separated) ? prepared.separated.length : 0;
+      const sliced = Array.isArray(prepared.sliced) ? prepared.sliced.length : 0;
+      setImportNote(
+        `处理完成：已分离 ${separated} 个、切片 ${sliced} 个，最终保留 ${prepared.keptCount ?? 0} 段；` +
+          "下一步去「预处理」提取特征",
+      );
+      setScan(await backend.datasetScan(project.id));
+      setQc(await runQc(project.id));
+      void backend.datasetBandwidth(project.id).then(setBandwidth).catch(() => undefined);
+    } catch (e) {
+      setError(toErrorText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function run<T>(label: string, fn: () => Promise<T>, apply: (value: T) => void) {
     if (!project) return;
     setBusy(label);
@@ -303,93 +330,141 @@ export function DatasetPage() {
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          ["总时长", scanning ? "扫描中…" : total ? formatDuration(total) : "—"],
-          ["文件数", scanning ? "扫描中…" : (qc?.summary?.fileCount ?? "—")],
-          ["静音比", scanning ? "…" : metrics?.silenceRatio != null ? `${(metrics.silenceRatio * 100).toFixed(1)}%` : "—"],
-          ["削波比", scanning ? "…" : metrics?.clippingRatio != null ? `${(metrics.clippingRatio * 100).toFixed(3)}%` : "—"],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-line bg-surface p-3">
-            <div className="text-[11px] text-muted">{label}</div>
-            <div className="mt-1 text-[18px] font-semibold tabular">{value}</div>
+      <div className="grid gap-3 lg:grid-cols-[1.55fr_1fr]">
+        {/* 左列：QC 报告 */}
+        <div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[
+              ["总时长", scanning ? "扫描中…" : total ? formatDuration(total) : "—"],
+              ["文件数", scanning ? "扫描中…" : (qc?.summary?.fileCount ?? "—")],
+              ["静音比", scanning ? "…" : metrics?.silenceRatio != null ? `${(metrics.silenceRatio * 100).toFixed(1)}%` : "—"],
+              ["削波比", scanning ? "…" : metrics?.clippingRatio != null ? `${(metrics.clippingRatio * 100).toFixed(3)}%` : "—"],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-line bg-surface p-3">
+                <div className="text-[11px] text-muted">{label}</div>
+                <div className="mt-1 text-[18px] font-semibold tabular">{value}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {bandwidth && bandwidth.files > 0 && (
-        <div
-          className={`mt-3 rounded-lg border p-3.5 ${
-            bandwidth.verdict.level === "good"
-              ? "border-ok/40 bg-ok/5"
-              : bandwidth.verdict.level === "ok"
-                ? "border-line bg-surface"
-                : "border-warn/40 bg-warn/5"
-          }`}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
-            <span className="font-medium">
-              素材带宽体检 · {bandwidth.files} 个文件 · 中位{" "}
-              {bandwidth.medianRolloffHz
-                ? `${(bandwidth.medianRolloffHz / 1000).toFixed(1)} kHz`
-                : "—"}
-            </span>
-            <span className="tabular text-muted">
-              模型输出亮度上限 ≈{" "}
-              {bandwidth.estimatedOutputCeilingHz
-                ? `${(bandwidth.estimatedOutputCeilingHz / 1000).toFixed(1)} kHz`
-                : "—"}{" "}
-              · {bandwidth.verdict.label}
-            </span>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              disabled={!!busy}
+              onClick={() => void startPrepare()}
+              title="分离 → 转码 → 切片 → 统一 44.1k → 精修 → 清理；预处理在下一步单独跑"
+            >
+              {busy === "prepare" ? "处理中…" : "开始处理数据集"}
+            </Button>
+            <Button disabled={!!busy} onClick={() => void run("slice", () => backend.datasetSlice(project.id), () => setScan(null))}>
+              {busy === "slice" ? "切片中…" : "切片 5–15s"}
+            </Button>
+            <Button disabled={!!busy} onClick={() => void run("resample", () => backend.datasetResample(project.id), () => setScan(null))}>
+              {busy === "resample" ? "转换中…" : "统一 44.1k 单声道"}
+            </Button>
           </div>
-          <p className="mt-1 text-[11px] text-muted">{bandwidth.verdict.advice}</p>
-          <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted">
-            {Object.entries(bandwidth.buckets)
-              .sort((a, b) => b[1] - a[1])
-              .map(([label, count]) => (
-                <span key={label} className="tabular">
-                  {label}: {count}
+
+          {qc?.assertions && (
+            <div className="mt-3 rounded-lg border border-line bg-surface p-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-medium">门禁结论</span>
+                <span className={qc.assertions.passed ? "text-[12px] text-ok" : "text-[12px] text-danger"}>
+                  {qc.assertions.passed ? "通过" : `${qc.assertions.blocking.length} 个阻断项`}
                 </span>
-              ))}
-          </div>
+              </div>
+              <ul className="mt-2 space-y-1 text-[12px]">
+                {qc.assertions.blocking.map((item) => (
+                  <li key={item.code + item.message} className="text-danger">
+                    [{item.code}] {item.message}
+                    {item.detail ? `（${item.detail}）` : ""}
+                  </li>
+                ))}
+                {qc.assertions.warnings.map((item) => (
+                  <li key={item.code + item.message} className="text-warn">
+                    [{item.code}] {item.message}
+                  </li>
+                ))}
+                {qc.assertions.blocking.length === 0 && qc.assertions.warnings.length === 0 && (
+                  <li className="text-muted">没有发现问题</li>
+                )}
+              </ul>
+            </div>
+          )}
         </div>
-      )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button disabled={!!busy} onClick={() => void run("slice", () => backend.datasetSlice(project.id), () => setScan(null))}>
-          {busy === "slice" ? "切片中…" : "切片 5–15s"}
-        </Button>
-        <Button disabled={!!busy} onClick={() => void run("resample", () => backend.datasetResample(project.id), () => setScan(null))}>
-          {busy === "resample" ? "转换中…" : "统一 44.1k 单声道"}
-        </Button>
+        {/* 右列：素材带宽体检（Layer 1） */}
+        <div>
+          {bandwidth && bandwidth.files > 0 ? (
+            <div
+              className={`rounded-lg border p-3.5 ${
+                bandwidth.verdict.level === "good"
+                  ? "border-ok/40 bg-ok/5"
+                  : bandwidth.verdict.level === "ok"
+                    ? "border-line bg-surface"
+                    : "border-warn/40 bg-warn/5"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                <span className="font-medium">素材带宽体检</span>
+                <span className="text-[11px] text-muted">{bandwidth.files} 个文件</span>
+              </div>
+              <div className="mt-2 flex items-baseline justify-between">
+                <span className="text-[11px] text-muted">中位频谱 rolloff</span>
+                <span className="tabular text-[18px] font-semibold">
+                  {bandwidth.medianRolloffHz
+                    ? `${(bandwidth.medianRolloffHz / 1000).toFixed(1)} kHz`
+                    : "—"}
+                </span>
+              </div>
+              <div className="mt-1 flex items-baseline justify-between">
+                <span className="text-[11px] text-muted">预估输出亮度上限</span>
+                <span className="tabular text-[18px] font-semibold">
+                  {bandwidth.estimatedOutputCeilingHz
+                    ? `${(bandwidth.estimatedOutputCeilingHz / 1000).toFixed(1)} kHz`
+                    : "—"}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-[11px]">
+                <span className="text-muted">0</span>
+                <span className={bandwidth.verdict.level === "good" ? "text-ok" : "text-warn"}>
+                  {bandwidth.verdict.label}
+                </span>
+                <span className="text-muted">
+                  奈奎斯特{" "}
+                  {bandwidth.nyquistHz && bandwidth.nyquistHz.length > 0
+                    ? `${(Math.max(...bandwidth.nyquistHz) / 1000).toFixed(2)} kHz`
+                    : "—"}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-raised">
+                <div
+                  className={`h-full rounded-full ${bandwidth.verdict.level === "good" ? "bg-ok" : "bg-warn"}`}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      ((bandwidth.estimatedOutputCeilingHz ?? 0) / 22050) * 100,
+                    )}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted">{bandwidth.verdict.advice}</p>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted">
+                {Object.entries(bandwidth.buckets)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([label, count]) => (
+                    <span key={label} className="tabular">
+                      {label}: {count}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-line bg-surface/50 p-4 text-[12px] text-muted">
+              导入音频后自动检测素材带宽：它决定模型输出的亮度上限。
+            </div>
+          )}
+        </div>
       </div>
-
-      {qc?.assertions && (
-        <div className="mt-4 rounded-lg border border-line bg-surface p-3.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] font-medium">门禁结论</span>
-            <span className={qc.assertions.passed ? "text-[12px] text-ok" : "text-[12px] text-danger"}>
-              {qc.assertions.passed ? "通过" : `${qc.assertions.blocking.length} 个阻断项`}
-            </span>
-          </div>
-          <ul className="mt-2 space-y-1 text-[12px]">
-            {qc.assertions.blocking.map((item) => (
-              <li key={item.code + item.message} className="text-danger">
-                [{item.code}] {item.message}
-                {item.detail ? `（${item.detail}）` : ""}
-              </li>
-            ))}
-            {qc.assertions.warnings.map((item) => (
-              <li key={item.code + item.message} className="text-warn">
-                [{item.code}] {item.message}
-              </li>
-            ))}
-            {qc.assertions.blocking.length === 0 && qc.assertions.warnings.length === 0 && (
-              <li className="text-muted">没有发现问题</li>
-            )}
-          </ul>
-        </div>
-      )}
 
       {scan && (
         <div className="mt-3 rounded-lg border border-line bg-surface p-3.5 text-[12px]">

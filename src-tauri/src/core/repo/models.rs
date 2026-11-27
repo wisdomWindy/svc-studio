@@ -171,6 +171,20 @@ pub fn delete(conn: &Connection, id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// 写入 7 步兼容性判定结果，并同步 status（unknown 视为不可用）。
+pub fn set_compat(conn: &Connection, id: &str, verdict: &str, compat_json: &str) -> AppResult<()> {
+    let status = match verdict {
+        "ready" => "ready",
+        "compressed" => "compressed",
+        _ => "incompatible",
+    };
+    conn.execute(
+        "UPDATE models SET compat_json = ?2, status = ?3 WHERE id = ?1",
+        rusqlite::params![id, compat_json, status],
+    )?;
+    Ok(())
+}
+
 /// 启动对账：磁盘上已不存在的模型标 missing（不删记录，保留历史与追溯）。
 pub fn mark_missing(conn: &Connection) -> AppResult<Vec<String>> {
     let mut stmt =
@@ -316,6 +330,34 @@ mod tests {
             let runs: i64 = c.query_row("SELECT count(*) FROM inference_runs", [], |r| r.get(0))?;
             assert_eq!(models, 0, "模型应被删除");
             assert_eq!(runs, 0, "引用该模型的推理记录应一并移除，而不是报外键错");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn set_compat_maps_verdict_to_status() {
+        let (_d, db) = fixture();
+        db.with(|c| {
+            let now = now_iso();
+            insert(c, &now, &newm("mdl_c", "sha-c"))?;
+            set_compat(c, "mdl_c", "ready", r#"{"verdict":"ready"}"#)?;
+            let card = get(c, "mdl_c")?.unwrap();
+            assert_eq!(card.status, "ready");
+            assert!(card.compat_json.is_some());
+
+            set_compat(
+                c,
+                "mdl_c",
+                "incompatible",
+                r#"{"verdict":"incompatible","missingKeys":["enc_q"]}"#,
+            )?;
+            let card = get(c, "mdl_c")?.unwrap();
+            assert_eq!(card.status, "incompatible", "不兼容必须落到 incompatible");
+
+            // unknown 也按不可用处理，避免把坏模型当可用
+            set_compat(c, "mdl_c", "unknown", r#"{"verdict":"unknown"}"#)?;
+            assert_eq!(get(c, "mdl_c")?.unwrap().status, "incompatible");
             Ok(())
         })
         .unwrap();
