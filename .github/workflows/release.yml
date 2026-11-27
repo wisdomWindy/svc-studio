@@ -117,6 +117,25 @@ jobs:
           Write-Host "::warning::RoFormer 权重下载失败，分离将回退 MDX23C/Demucs"
           Remove-Item $out -Force -ErrorAction SilentlyContinue
 
+      - name: Fetch dnsmos models
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $dir = "src-tauri/resources/pretrain/dnsmos"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $base = "https://raw.githubusercontent.com/microsoft/DNS-Challenge/master/DNSMOS/DNSMOS"
+          foreach ($f in @("sig_bak_ovr.onnx", "model_v8.onnx")) {
+            $out = Join-Path $dir $f
+            for ($i = 1; $i -le 5; $i++) {
+              curl.exe -L --fail --retry 3 --connect-timeout 20 -o $out "$base/$f"
+              if ((Test-Path $out) -and ((Get-Item $out).Length -gt 100KB)) { Write-Host "$f ok"; break }
+              Write-Host "$f retry $i"; Start-Sleep -Seconds (5 * $i)
+            }
+          }
+          if (-not (Test-Path (Join-Path $dir "sig_bak_ovr.onnx"))) {
+            Write-Host "::warning::DNSMOS 模型下载失败，感知评分不可用（其余功能不受影响）"
+          }
+
       - name: Build installer (signed)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -187,6 +206,20 @@ jobs:
           done
           echo "::warning::RoFormer 权重下载失败，分离将回退 MDX23C/Demucs"
           rm -f "$out"
+
+      - name: Fetch dnsmos models
+        continue-on-error: true
+        run: |
+          mkdir -p src-tauri/resources/pretrain/dnsmos
+          base="https://raw.githubusercontent.com/microsoft/DNS-Challenge/master/DNSMOS/DNSMOS"
+          for f in sig_bak_ovr.onnx model_v8.onnx; do
+            out="src-tauri/resources/pretrain/dnsmos/$f"
+            for i in 1 2 3; do
+              curl -L --fail --retry 3 --connect-timeout 20 -o "$out" "$base/$f" || true
+              if [ -f "$out" ] && [ "$(wc -c < "$out")" -gt 100000 ]; then echo "$f ok"; break; fi
+              echo "$f retry $i"; sleep $((5 * i))
+            done
+          done
 
       - name: Build dmg (retry once)
         env:

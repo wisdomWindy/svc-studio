@@ -27,6 +27,8 @@ einops==0.7.0
 # BS-RoFormer 人声分离（vendor/so-vits-svc/bs_roformer_module，键名与 UVR 权重一致）
 beartype==0.18.5
 rotary-embedding-torch==0.6.5
+# DNSMOS P.835/P.808 感知评分（模型放 resources/pretrain/dnsmos，纯 ONNX 推理）
+onnxruntime==1.32.0
 local_attention==1.0.2
 onnx==1.14.1
 onnxsim==0.4.33

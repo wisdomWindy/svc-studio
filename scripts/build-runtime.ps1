@@ -119,7 +119,7 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
     "numpy" "scipy" "librosa" "scikit-learn" "soundfile" "tensorboard" "faiss-cpu" `
     "matplotlib" "pandas" "loguru" `
     "omegaconf" "hydra-core" "tensorboardX" "demucs==4.1.0" "rich" `
-    "beartype" "rotary-embedding-torch" "einops"
+    "beartype" "rotary-embedding-torch" "einops" "onnxruntime"
   if ($LASTEXITCODE -eq 0) { $depsOk = $true; break }
   Write-Host "    第 $attempt 次依赖安装失败（多为网络断流），$(20 * $attempt) 秒后重试"
   Start-Sleep -Seconds (20 * $attempt)

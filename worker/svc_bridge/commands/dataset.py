@@ -521,7 +521,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="svc_bridge dataset")
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality", "refine", "bandwidth", "singing"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality", "refine", "bandwidth", "singing", "mos"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
@@ -548,6 +548,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         result = scan(args.root)
     elif args.action == "prune-short":
         result = prune_short(args.root, 1.0)
+    elif args.action == "mos":
+        from .perceptual import scan as mos_scan
+
+        result = mos_scan(args.root)
     elif args.action == "singing":
         from .sing_speech import scan as singing_scan
 

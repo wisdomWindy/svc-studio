@@ -52,7 +52,7 @@ def _cmd_rpc(job_id: str) -> int:
 
 
 def _add_dataset(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality", "refine", "bandwidth", "singing"])
+    parser.add_argument("action", choices=["scan", "qc", "slice", "resample", "assert", "convert", "separate", "finalize", "prune-short", "declick", "prune-quality", "refine", "bandwidth", "singing", "mos"])
     parser.add_argument("--root", required=True)
     parser.add_argument("--out", default="")
     parser.add_argument("--min-seconds", type=float, default=5.0)
