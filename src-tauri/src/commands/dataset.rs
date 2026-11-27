@@ -615,6 +615,13 @@ async fn run_prepare(
         .ok();
     };
 
+    // 源文件带宽必须在分离前测：finalize 之后原文件会被清理，
+    // 而「干声带宽」取决于分离器残留（同源 RoFormer 11kHz / Demucs 22kHz），不能当素材上限
+    stage("bandwidth", "检测素材带宽…");
+    let source_bandwidth = run_json(&python, &["dataset", "bandwidth", "--root", &root_arg])
+        .await
+        .unwrap_or(serde_json::Value::Null);
+
     let mut sep_report = serde_json::Value::Null;
     if separate {
         stage("separate", "分离人声（UVR5 MDX23C）…");
@@ -639,22 +646,14 @@ async fn run_prepare(
     let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
     stage("resample", "统一 44.1k 单声道…");
     let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
-    // 切片后按绝对质量阈值精修：时长/噪声底/带宽/近重复 + 响度归一化（不合格直接删除）
+    // 切片后精修：只做 Layer-0（时长/削波/近重复）+ 响度归一化。
+    // 带宽与 SNR 代理不能在这里当删除判据：
+    // - 干声带宽取决于分离器残留（同一源：RoFormer 干声 11kHz、Demucs 22kHz），
+    //   测的是分离噪声底而不是素材上限；
+    // - quietFrameRatio 在 20dB 以上饱和，不是 SNR。
+    // 两者都只在报告里出现，需要时可用 --min-rolloff-hz / --min-snr-db 显式开启。
     stage("refine", "按质量阈值精修切片…");
-    let refined = run_json(
-        &python,
-        &[
-            "dataset",
-            "refine",
-            "--root",
-            &root_arg,
-            "--min-snr-db",
-            "10",
-            "--min-rolloff-hz",
-            "13000",
-        ],
-    )
-    .await?;
+    let refined = run_json(&python, &["dataset", "refine", "--root", &root_arg]).await?;
     stage("finalize", "清理中间产物…");
     let finalized = run_json(&python, &["dataset", "finalize", "--root", &root_arg]).await?;
 
@@ -688,6 +687,8 @@ async fn run_prepare(
         "resampled": resampled.get("changed").cloned().unwrap_or(serde_json::Value::Null),
         // 分离质量（只报告：伴奏泄漏相关 + 人声占比）
         "separationQuality": sep_report.get("quality").cloned().unwrap_or(serde_json::Value::Null),
+        // 源文件带宽（−50dB 上限口径），与界面上的「素材带宽体检」同源
+        "sourceBandwidth": source_bandwidth,
         "refinedKept": refined.get("keptFiles").cloned().unwrap_or(serde_json::Value::Null),
         "refinedRejected": refined
             .get("rejectedFiles")

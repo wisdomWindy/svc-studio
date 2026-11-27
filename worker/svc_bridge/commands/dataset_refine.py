@@ -18,8 +18,11 @@ from .. import audio
 
 DEFAULT_MIN_SECONDS = 5.0
 DEFAULT_MAX_SECONDS = 15.0
-DEFAULT_MIN_SNR_DB = 10.0  # 噪声底：最安静 10% 帧 vs 整体
-DEFAULT_MIN_ROLLOFF_HZ = 0.0  # 0 = 不按带宽筛（素材普遍受限时会清空）
+# 下面两项默认关闭：它们都不能可靠地衡量「素材质量」，只作为可选筛选项保留。
+# - 干声带宽取决于分离器残留（同源 RoFormer 11kHz / Demucs 22kHz）
+# - quietFrameRatio 是动态范围代理，20dB 以上饱和，不是 SNR
+DEFAULT_MIN_SNR_DB = 0.0
+DEFAULT_MIN_ROLLOFF_HZ = 0.0  # 0 = 不按带宽筛
 DEFAULT_DEDUP_SIMILARITY = 0.995
 DEFAULT_TARGET_RMS_DBFS = -20.0
 DEFAULT_PEAK_DBFS = -1.0
@@ -40,26 +43,27 @@ def _fingerprint(x, sr: int, np) -> Optional["np.ndarray"]:
 
 
 def _measure(path: Path, np) -> Dict[str, Any]:
+    from . import source_gate
+
     wav = audio.read_wav(path)
     samples = audio.to_mono_if_needed(wav)
     x = np.frombuffer(samples.tobytes(), dtype="<i2").astype(np.float64) / 32768.0
     sr = wav.sample_rate
-    spec = np.abs(np.fft.rfft(x))
-    freqs = np.fft.rfftfreq(len(x), 1 / sr)
-    total = float(spec.sum())
-    rolloff = float(freqs[int(np.searchsorted(np.cumsum(spec), total * 0.99))]) if total > 0 else 0.0
+    # 带宽必须用与 Layer-1 相同的标定口径（-50dB 上限），否则报告自相矛盾
+    bw = source_gate.bandwidth_db(samples, sr) or 0.0
     fl = max(1, int(sr * 0.01))
     n = len(x) // fl
     frames = np.sqrt(((x[: n * fl].reshape(n, fl)) ** 2).mean(axis=1)) if n else np.array([0.0])
     floor = float(np.percentile(frames, 10))
     rms = float(np.sqrt((x**2).mean()))
-    snr = 20 * math.log10(rms / floor) if floor > 1e-9 else 60.0
+    # 诚实命名：这是「最安静 10% 帧 vs 整体」的动态范围代理，不是 SNR
+    quiet_ratio = 20 * math.log10(rms / floor) if floor > 1e-9 else 60.0
     return {
         "path": path,
         "seconds": round(wav.seconds, 3),
-        "snrDb": round(snr, 2),
+        "quietFrameRatioDb": round(quiet_ratio, 2),
         "rmsDbfs": round(20 * math.log10(max(rms, 1e-12)), 2),
-        "rolloffHz": round(rolloff, 0),
+        "rolloffHz": round(bw, 0),
         "clipRatio": round(audio.clipping_ratio(samples), 6),
         "samples": samples,
         "sampleRate": sr,
@@ -114,7 +118,7 @@ def refine_tree(
     rejected: List[Dict[str, Any]] = []
 
     def reject(entry: Dict[str, Any], reason: str) -> None:
-        rejected.append({"relPath": entry["relPath"], "reason": reason, "snrDb": entry["snrDb"]})
+        rejected.append({"relPath": entry["relPath"], "reason": reason, "quietFrameRatioDb": entry["quietFrameRatioDb"]})
         entry["path"].unlink(missing_ok=True)
 
     # 1) 绝对阈值
@@ -126,8 +130,8 @@ def refine_tree(
             reject(entry, f"时长 {entry['seconds']:.2f}s > {max_seconds:.0f}s")
         elif entry["clipRatio"] >= 0.001:
             reject(entry, f"削波 {entry['clipRatio'] * 100:.2f}%")
-        elif entry["snrDb"] < min_snr_db:
-            reject(entry, f"噪声底 {entry['snrDb']:.1f}dB < {min_snr_db:.0f}dB")
+        elif entry["quietFrameRatioDb"] < min_snr_db:
+            reject(entry, f"静音段动态范围 {entry['quietFrameRatioDb']:.1f}dB < {min_snr_db:.0f}dB")
         elif min_rolloff_hz > 0 and entry["rolloffHz"] < min_rolloff_hz:
             reject(entry, f"带宽 {entry['rolloffHz']:.0f}Hz < {min_rolloff_hz:.0f}Hz")
         else:
@@ -137,7 +141,7 @@ def refine_tree(
     deduped: List[Dict[str, Any]] = []
     duplicates = 0
     if dedup_similarity > 0 and len(survivors) > 1:
-        survivors.sort(key=lambda e: e["snrDb"], reverse=True)
+        survivors.sort(key=lambda e: e["quietFrameRatioDb"], reverse=True)
         kept_fp: List[Any] = []
         for entry in survivors:
             fp = entry["fingerprint"]
@@ -189,7 +193,7 @@ def refine_tree(
         },
         "keptStats": {
             "rolloffHzMedian": round(float(np.median([e["rolloffHz"] for e in deduped])), 0) if deduped else None,
-            "snrDbMedian": round(float(np.median([e["snrDb"] for e in deduped])), 1) if deduped else None,
+            "quietFrameRatioDbMedian": round(float(np.median([e["quietFrameRatioDb"] for e in deduped])), 1) if deduped else None,
             "rmsDbfsMedian": round(float(np.median(rms_after)), 1) if rms_after else None,
             "secondsTotal": round(sum(e["seconds"] for e in deduped), 1),
         },
