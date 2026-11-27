@@ -26,13 +26,22 @@ def _is_final(path: Path) -> bool:
     return wav.sample_rate == TARGET_SR and wav.channels == 1 and 0 < wav.seconds <= MAX_SECONDS
 
 
-def finalize_tree(root: str) -> Dict[str, Any]:
+def finalize_tree(root: str, on_progress=None) -> Dict[str, Any]:
     base = Path(root)
     removed: List[str] = []
     kept: List[str] = []
 
-    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
-        for entry in sorted(spk.iterdir()):
+    # 先收集条目（文件与子目录），进度需要总数
+    entries = [
+        (spk, entry)
+        for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_"))
+        for entry in sorted(spk.iterdir())
+    ]
+    total = len(entries)
+    if on_progress is not None:
+        on_progress(0, total)
+    for done, (spk, entry) in enumerate(entries, 1):
+        try:
             if entry.is_file():
                 if _is_final(entry):
                     kept.append(f"{spk.name}/{entry.name}")
@@ -42,6 +51,9 @@ def finalize_tree(root: str) -> Dict[str, Any]:
             elif entry.is_dir():
                 shutil.rmtree(entry, ignore_errors=True)
                 removed.append(f"{spk.name}/{entry.name}/")
+        finally:
+            if on_progress is not None:
+                on_progress(done, total)
 
     for internal in ("_original", "_tmp"):
         target = base / internal

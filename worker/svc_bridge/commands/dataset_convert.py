@@ -15,7 +15,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..audio import read_wav
 
@@ -70,7 +70,7 @@ def _convert_one(ffmpeg: str, src: Path, dest: Path, channels: Optional[int] = 1
         raise RuntimeError((proc.stderr or "").strip()[-500:] or "ffmpeg 转换失败")
 
 
-def convert_tree(root: str) -> Dict[str, Any]:
+def convert_tree(root: str, on_progress=None) -> Dict[str, Any]:
     base = Path(root)
     ffmpeg = find_ffmpeg()
     converted: List[Dict[str, Any]] = []
@@ -88,10 +88,19 @@ def convert_tree(root: str) -> Dict[str, Any]:
         }
 
     backup_root = base / "_original"
-    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
-        for src in sorted(p for p in spk.iterdir() if p.is_file()):
-            if src.suffix.lower() not in AUDIO_EXTS | WAV_EXTS:
-                continue
+    # 先收集候选并统计总数：进度需要 total，跳过/失败也要计数
+    jobs = [
+        (spk, src)
+        for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_"))
+        for src in sorted(spk.iterdir())
+        if src.is_file() and src.suffix.lower() in AUDIO_EXTS | WAV_EXTS
+    ]
+    total = len(jobs)
+    if on_progress is not None:
+        on_progress(0, total)
+
+    for done, (spk, src) in enumerate(jobs, 1):
+        try:
             if not needs_convert(src):
                 skipped.append(f"{spk.name}/{src.name}")
                 continue
@@ -118,6 +127,9 @@ def convert_tree(root: str) -> Dict[str, Any]:
                 if tmp.exists():
                     tmp.unlink(missing_ok=True)
                 failed.append({"relPath": f"{spk.name}/{src.name}", "error": str(exc)})
+        finally:
+            if on_progress is not None:
+                on_progress(done, total)
 
     return {
         "schema": "svcstudio.dataset.convert/1",

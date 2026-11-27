@@ -96,6 +96,7 @@ def refine_tree(
     target_rms_dbfs: float = DEFAULT_TARGET_RMS_DBFS,
     peak_dbfs: float = DEFAULT_PEAK_DBFS,
     normalize: bool = True,
+    on_progress=None,
 ) -> Dict[str, Any]:
     base = Path(root)
     np = audio._np()  # noqa: SLF001 - 同包内部约定
@@ -104,16 +105,26 @@ def refine_tree(
 
     scored: List[Dict[str, Any]] = []
     unreadable: List[str] = []
-    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
-        for wav_path in sorted(spk.glob("*.wav")):
-            try:
-                m = _measure(wav_path, np)
-            except Exception as exc:  # noqa: BLE001
-                unreadable.append(f"{spk.name}/{wav_path.name}: {exc}")
-                continue
-            m["speaker"] = spk.name
-            m["relPath"] = f"{spk.name}/{wav_path.name}"
-            scored.append(m)
+    files = [
+        (spk, wav_path)
+        for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_"))
+        for wav_path in sorted(spk.glob("*.wav"))
+    ]
+    total = len(files)
+    if on_progress is not None:
+        on_progress(0, total)
+    for done, (spk, wav_path) in enumerate(files, 1):
+        try:
+            m = _measure(wav_path, np)
+        except Exception as exc:  # noqa: BLE001
+            unreadable.append(f"{spk.name}/{wav_path.name}: {exc}")
+            continue
+        finally:
+            if on_progress is not None:
+                on_progress(done, total)
+        m["speaker"] = spk.name
+        m["relPath"] = f"{spk.name}/{wav_path.name}"
+        scored.append(m)
 
     rejected: List[Dict[str, Any]] = []
 

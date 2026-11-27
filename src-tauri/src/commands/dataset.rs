@@ -743,11 +743,32 @@ async fn run_prepare(
     }
 
     stage("convert", "转换格式…");
-    let converted = run_json(&python, &["dataset", "convert", "--root", &root_arg]).await?;
+    let converted = run_streaming(
+        &python,
+        &["dataset", "convert", "--root", &root_arg],
+        app,
+        "convert",
+        "已转码",
+    )
+    .await?;
     stage("slice", "切片…");
-    let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
+    let sliced = run_streaming(
+        &python,
+        &["dataset", "slice", "--root", &root_arg],
+        app,
+        "slice",
+        "已切片",
+    )
+    .await?;
     stage("resample", "统一 44.1k 单声道…");
-    let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
+    let resampled = run_streaming(
+        &python,
+        &["dataset", "resample", "--root", &root_arg],
+        app,
+        "resample",
+        "已重采样",
+    )
+    .await?;
     // 切片后精修：只做 Layer-0（时长/削波/近重复）+ 响度归一化。
     // 带宽与 SNR 代理不能在这里当删除判据：
     // - 干声带宽取决于分离器残留（同一源：RoFormer 干声 11kHz、Demucs 22kHz），
@@ -755,9 +776,23 @@ async fn run_prepare(
     // - quietFrameRatio 在 20dB 以上饱和，不是 SNR。
     // 两者都只在报告里出现，需要时可用 --min-rolloff-hz / --min-snr-db 显式开启。
     stage("refine", "按质量阈值精修切片…");
-    let refined = run_json(&python, &["dataset", "refine", "--root", &root_arg]).await?;
+    let refined = run_streaming(
+        &python,
+        &["dataset", "refine", "--root", &root_arg],
+        app,
+        "refine",
+        "已精修",
+    )
+    .await?;
     stage("finalize", "清理中间产物…");
-    let finalized = run_json(&python, &["dataset", "finalize", "--root", &root_arg]).await?;
+    let finalized = run_streaming(
+        &python,
+        &["dataset", "finalize", "--root", &root_arg],
+        app,
+        "finalize",
+        "已清理",
+    )
+    .await?;
 
     let failed = converted
         .get("failed")

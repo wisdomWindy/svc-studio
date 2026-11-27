@@ -168,3 +168,35 @@ def test_separate_events_mode_streams_progress_then_result(work: Path) -> None:
     assert steps == sorted(steps), f"进度必须单调不减：{steps}"
     assert progress[-1]["total"] == 3
     assert steps[-1] in (3,), f"结束时步数应等于总数，实际 {steps[-1]}"
+
+@pytest.mark.parametrize("action", ["convert", "slice", "resample", "refine", "finalize"])
+def test_every_stage_streams_progress(work: Path, action: str, monkeypatch) -> None:
+    """转码/切片/重采样/精修/清理 都必须逐步上报进度（界面显示 已xx N/M）。"""
+    # convert 依赖 ffmpeg；测试机没有就跳过（真实运行时由安装目录提供）
+    ffmpeg = work / ".." / "ffmpeg.exe"
+    real = Path(r"D:\program\svcstudio\SVC Studio\resources\bin\ffmpeg.exe")
+    if action == "convert":
+        if not real.is_file():
+            pytest.skip("需要 ffmpeg 才能验证转码进度")
+        monkeypatch.setenv("SVCSTUDIO_FFMPEG", str(real))
+    raw = work / "dataset_raw"
+    spk = raw / "spk"
+    _make_wav(spk / "a.wav", seconds=6.0)
+    # 第二个文件频率不同，避免被 refine 当作近重复
+    import array
+    import math
+
+    samples = array.array("h", [int(0.3 * 32767 * math.sin(2 * math.pi * 440 * i / 44100)) for i in range(44100 * 6)])
+    audio.write_wav(spk / "b.wav", samples, 44100, 1)
+
+    proc = _run_cli(["dataset", action, "--root", str(raw), "--events"], cwd=work)
+    events = [json.loads(line) for line in proc.stdout.strip().splitlines()]
+    kinds = [e["kind"] for e in events]
+    assert kinds.count("result") == 1, f"{action}: 必须恰好一条 result，实际 {kinds}"
+    progress = [e for e in events if e["kind"] == "progress"]
+    assert progress, f"{action}: 没有任何进度事件"
+    steps = [e["step"] for e in progress]
+    assert steps[0] == 0, f"{action}: 第一次必须报 0"
+    assert steps == sorted(steps), f"{action}: 进度必须单调不减"
+    assert steps[-1] == progress[-1]["total"], f"{action}: 结束步数应等于总数，实际 {steps}"
+    assert progress[-1]["total"] >= 1

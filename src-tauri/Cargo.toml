@@ -1,6 +1,6 @@
 [package]
 name = "svc-studio"
-version = "0.3.15"
+version = "0.3.16"
 description = "SVC Studio - so-vits-svc desktop pipeline"
 authors = ["SVC Studio"]
 edition = "2021"

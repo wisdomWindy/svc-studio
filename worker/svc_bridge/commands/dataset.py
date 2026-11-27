@@ -401,12 +401,22 @@ def slice_tree(
     min_s: float = 5.0,
     max_s: float = 15.0,
     min_interval_ms: int = 300,
+    on_progress=None,
 ) -> Dict[str, Any]:
     base = Path(root)
     produced: Dict[str, List[str]] = {}
     flagged: List[Dict[str, Any]] = []
-    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
-        for wav_path in sorted(spk.glob("*.wav")):
+    # 先收集文件清单：进度需要总数，≤max_s 被跳过的文件也要计数
+    jobs = [
+        (spk, wav_path)
+        for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_"))
+        for wav_path in sorted(spk.glob("*.wav"))
+    ]
+    total = len(jobs)
+    if on_progress is not None:
+        on_progress(0, total)
+    for done, (spk, wav_path) in enumerate(jobs, 1):
+        try:
             seconds = read_wav(wav_path).seconds
             if seconds <= max_s:
                 continue
@@ -426,6 +436,9 @@ def slice_tree(
                         "chunks": len(names),
                     }
                 )
+        finally:
+            if on_progress is not None:
+                on_progress(done, total)
     return {
         "schema": "svcstudio.dataset.slice/1",
         "generatedAt": _now(),
@@ -478,11 +491,24 @@ def _resample_with_ffmpeg(path: Path, target_sr: int) -> bool:
         return False
 
 
-def resample_tree(root: str, target_sr: int = TARGET_SR, target_dbfs: float = -1.0) -> Dict[str, Any]:
+def resample_tree(
+    root: str,
+    target_sr: int = TARGET_SR,
+    target_dbfs: float = -1.0,
+    on_progress=None,
+) -> Dict[str, Any]:
     base = Path(root)
     changed: List[Dict[str, Any]] = []
-    for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
-        for wav_path in sorted(spk.glob("*.wav")):
+    jobs = [
+        (spk, wav_path)
+        for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_"))
+        for wav_path in sorted(spk.glob("*.wav"))
+    ]
+    total = len(jobs)
+    if on_progress is not None:
+        on_progress(0, total)
+    for done, (spk, wav_path) in enumerate(jobs, 1):
+        try:
             wav = read_wav(wav_path)
             if wav.sample_rate != target_sr and _resample_with_ffmpeg(wav_path, target_sr):
                 wav = read_wav(wav_path)  # ffmpeg 已转成目标采样率单声道
@@ -500,6 +526,9 @@ def resample_tree(root: str, target_sr: int = TARGET_SR, target_dbfs: float = -1
                     "to": {"sampleRate": target_sr, "channels": 1},
                 }
             )
+        finally:
+            if on_progress is not None:
+                on_progress(done, total)
     return {
         "schema": "svcstudio.dataset.resample/1",
         "generatedAt": _now(),
@@ -544,6 +573,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    events = bool(getattr(args, "events", False))
+
+    def progress(stage: str):
+        """--events 模式下返回逐文件进度回调；否则 None（保持原有的裸 JSON 行为）。"""
+        if not events:
+            return None
+        from .. import rpc
+
+        return lambda step, total: rpc.emit_progress(stage, step, total)
+
     if args.action == "scan":
         result = scan(args.root)
     elif args.action == "prune-short":
@@ -572,6 +611,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             dedup_similarity=args.dedup_similarity,
             target_rms_dbfs=args.target_rms_dbfs,
             normalize=not args.no_normalize,
+            on_progress=progress("refine"),
         )
     elif args.action == "prune-quality":
         from .dataset_quality import prune_quality_tree
@@ -582,40 +622,36 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         result = declick_tree(args.root, args.fade_ms, args.backup_dir or None)
     elif args.action == "qc":
-        if getattr(args, "events", False):
-            from .. import rpc
-
-            result = qc(args.root, on_progress=lambda step, total: rpc.emit_progress("qc", step, total))
-            rpc.emit("result", data=result)
-        else:
-            result = qc(args.root)
+        result = qc(args.root, on_progress=progress("qc"))
     elif args.action == "slice":
-        result = slice_tree(args.root, args.min_seconds, args.max_seconds, args.min_interval_ms)
+        result = slice_tree(
+            args.root,
+            args.min_seconds,
+            args.max_seconds,
+            args.min_interval_ms,
+            on_progress=progress("slice"),
+        )
     elif args.action == "finalize":
         from .dataset_finalize import finalize_tree
 
-        result = finalize_tree(args.root)
+        result = finalize_tree(args.root, on_progress=progress("finalize"))
     elif args.action == "separate":
         from .dataset_separate import separate_tree
 
-        if getattr(args, "events", False):
-            from .. import rpc
-
-            result = separate_tree(
-                args.root,
-                drop_rejected=not args.keep_rejected,
-                # 逐文件进度：9.01s 一窗的分离很慢，界面必须能看到 已分离 N/M
-                on_progress=lambda step, total: rpc.emit_progress("separate", step, total),
-            )
-            rpc.emit("result", data=result)
-        else:
-            result = separate_tree(args.root, drop_rejected=not args.keep_rejected)
+        # 分离一首歌要十几秒，界面必须能看到 已分离 N/M
+        result = separate_tree(
+            args.root,
+            drop_rejected=not args.keep_rejected,
+            on_progress=progress("separate"),
+        )
     elif args.action == "convert":
         from .dataset_convert import convert_tree
 
-        result = convert_tree(args.root)
+        result = convert_tree(args.root, on_progress=progress("convert"))
     elif args.action == "resample":
-        result = resample_tree(args.root, args.sample_rate)
+        result = resample_tree(
+            args.root, args.sample_rate, on_progress=progress("resample")
+        )
     else:
         result = assert_thresholds(qc(args.root))
 
@@ -623,8 +659,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         write_report(result, args.out)
     import sys
 
-    # --events 模式下结果已通过 rpc.emit("result") 输出，这里不再打印裸 JSON
-    if not getattr(args, "events", False):
+    if events:
+        # --events 模式：进度事件之后以单条 result 收尾（Rust 侧据此收结果）
+        from .. import rpc
+
+        rpc.emit("result", data=result)
+    else:
         sys.stdout.buffer.write(json.dumps(result, ensure_ascii=False).encode("utf-8") + b"\n")
         sys.stdout.buffer.flush()
     passed = True
