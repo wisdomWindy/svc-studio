@@ -104,6 +104,33 @@ pub async fn dataset_scan(
     .await
 }
 
+/// 导入后立刻可调的带宽体检：估算这批素材能支撑的模型输出亮度上限。
+///
+/// 只读、很快（逐文件解码一次），所以不放进耗时的 prepare 链条里——
+/// 用户导入完马上就能看到「素材偏闷 / 良好」的判断，不必等分离跑完。
+#[tauri::command]
+pub async fn dataset_bandwidth(
+    state: State<'_, AppPaths>,
+    project_id: String,
+) -> AppResult<serde_json::Value> {
+    let python = crate::commands::settings::python_for_state(&state)?;
+    let root = project_root(&state, &project_id)?;
+    let dir = dataset_raw(&root);
+    if !dir.is_dir() {
+        return Ok(serde_json::json!({
+            "schema": "svcstudio.dataset.bandwidth/1",
+            "files": 0,
+            "buckets": {},
+            "verdict": { "level": "none", "label": "无素材", "advice": "先导入音频文件" },
+        }));
+    }
+    crate::core::worker_cli::run_json(
+        &python,
+        &["dataset", "bandwidth", "--root", &dir.to_string_lossy()],
+    )
+    .await
+}
+
 /// QC 一次 = 数据集的一个版本；文件清单、报告、断言结果都落库。
 #[tauri::command]
 pub fn dataset_qc(

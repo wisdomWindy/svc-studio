@@ -58,6 +58,7 @@ def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
         ["dataset", "qc"],
         # 这条以前会往 stdout 打 `[separate] ...`：模型资产缺失时走三级回退，日志最多
         ["dataset", "separate"],
+        ["dataset", "bandwidth"],
     ],
 )
 def test_stdout_is_single_json_object(work: Path, args: list[str]) -> None:

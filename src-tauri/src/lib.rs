@@ -341,6 +341,7 @@ pub fn run() {
             commands::perf::save_probe_result,
             commands::diagnostics::export_diagnostics,
             commands::dataset::dataset_scan,
+            commands::dataset::dataset_bandwidth,
             commands::dataset::dataset_import,
             commands::dataset::dataset_prepare,
             commands::dataset::dataset_qc,

@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/Button";
 import { listen } from "@tauri-apps/api/event";
-import { backend } from "@/lib/backend";
+import { backend, type BandwidthReport } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { formatDuration, statusLabel } from "@/lib/format";
 import { DatasetDropZone } from "./DatasetDropZone";
@@ -34,12 +34,14 @@ export function DatasetPage() {
   const [error, setError] = useState<string | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
   const [separateVocals, setSeparateVocals] = useState(true);
+  const [bandwidth, setBandwidth] = useState<BandwidthReport | null>(null);
 
   // 切换选中项目时自动加载它的数据集状态，不需要用户再点一次「结构扫描」
   useEffect(() => {
     if (!project) {
       setScan(null);
       setQc(null);
+      setBandwidth(null);
       return;
     }
     const id = project.id;
@@ -55,6 +57,13 @@ export function DatasetPage() {
         const scanned = await backend.datasetScan(id);
         if (cancelled) return;
         setScan(scanned as Record<string, unknown>);
+        // 带宽体检只读一次源文件，导入/切项目后立刻给结论，不等分离跑完
+        void backend
+          .datasetBandwidth(id)
+          .then((b) => {
+            if (!cancelled) setBandwidth(b);
+          })
+          .catch(() => undefined);
       } catch (e) {
         if (!cancelled) {
           setError(toErrorText(e));
@@ -198,6 +207,8 @@ export function DatasetPage() {
       const scanned = await backend.datasetScan(project.id);
       setScan(scanned);
       setQc(await runQc(project.id));
+      // 导入后立刻给带宽预估（只读源文件），不用等分离跑完
+      void backend.datasetBandwidth(project.id).then(setBandwidth).catch(() => undefined);
     } catch (e) {
       setError(toErrorText(e));
     } finally {
@@ -301,6 +312,44 @@ export function DatasetPage() {
           </div>
         ))}
       </div>
+
+      {bandwidth && bandwidth.files > 0 && (
+        <div
+          className={`mt-3 rounded-lg border p-3.5 ${
+            bandwidth.verdict.level === "good"
+              ? "border-ok/40 bg-ok/5"
+              : bandwidth.verdict.level === "ok"
+                ? "border-line bg-surface"
+                : "border-warn/40 bg-warn/5"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+            <span className="font-medium">
+              素材带宽体检 · {bandwidth.files} 个文件 · 中位{" "}
+              {bandwidth.medianRolloffHz
+                ? `${(bandwidth.medianRolloffHz / 1000).toFixed(1)} kHz`
+                : "—"}
+            </span>
+            <span className="tabular text-muted">
+              模型输出亮度上限 ≈{" "}
+              {bandwidth.estimatedOutputCeilingHz
+                ? `${(bandwidth.estimatedOutputCeilingHz / 1000).toFixed(1)} kHz`
+                : "—"}{" "}
+              · {bandwidth.verdict.label}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-muted">{bandwidth.verdict.advice}</p>
+          <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted">
+            {Object.entries(bandwidth.buckets)
+              .sort((a, b) => b[1] - a[1])
+              .map(([label, count]) => (
+                <span key={label} className="tabular">
+                  {label}: {count}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button disabled={!!busy} onClick={() => void run("slice", () => backend.datasetSlice(project.id), () => setScan(null))}>

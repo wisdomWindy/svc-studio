@@ -50,6 +50,20 @@ export interface DoctorReport {
   summary: { pass: number; warn: number; fail: number; trainable: boolean };
 }
 
+/** 导入后的素材带宽体检：素材上限即模型输出亮度上限。 */
+export interface BandwidthReport {
+  schema: string;
+  files: number;
+  failed: string[];
+  buckets: Record<string, number>;
+  medianRolloffHz: number | null;
+  minRolloffHz?: number | null;
+  maxRolloffHz?: number | null;
+  estimatedOutputCeilingHz: number | null;
+  verdict: { level: string; label: string; advice: string };
+  seconds?: number;
+}
+
 export interface Recommend {
   vramMb: number;
   batchSize: number;
@@ -123,6 +137,9 @@ export const backend = {
     call<Record<string, unknown>>("dataset_scan", { projectId }, timeoutMs),
   // QC 走后台任务，进度通过 dataset-progress 事件回传（kind="qc"）
   datasetQc: (projectId: string) => call<void>("dataset_qc", { projectId }),
+  // 导入后立即可查：素材带宽 → 模型输出亮度上限预估
+  datasetBandwidth: (projectId: string) =>
+    call<BandwidthReport>("dataset_bandwidth", { projectId }),
   datasetSlice: (
     projectId: string,
     opts: { minSeconds?: number; maxSeconds?: number; minIntervalMs?: number } = {},
