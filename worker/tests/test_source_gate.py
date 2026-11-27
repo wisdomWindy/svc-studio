@@ -9,6 +9,8 @@ import array
 import math
 from pathlib import Path
 
+import pytest
+
 from svc_bridge import audio
 from svc_bridge.commands import dataset_separate, source_gate
 
@@ -58,12 +60,18 @@ def test_too_long_is_blocked(work: Path) -> None:
     assert "时长过长" in (source_gate.gate_reason(metrics) or "")
 
 
-def test_unreadable_is_blocked(work: Path) -> None:
+def test_unreadable_is_blocked(work: Path, monkeypatch) -> None:
+    """有解码器但文件真的坏 → 判「解码失败」并拦截。"""
+    ffmpeg = Path(r"D:\program\svcstudio\SVC Studio\resources\bin\ffmpeg.exe")
+    if not ffmpeg.is_file():
+        pytest.skip("需要真实 ffmpeg 才能验证解码失败")
+    monkeypatch.setattr(source_gate, "_ffmpeg", lambda: str(ffmpeg))
     bad = work / "broken.mp3"
     bad.parent.mkdir(parents=True, exist_ok=True)
     bad.write_bytes(b"not audio at all")
     metrics = source_gate.analyze(bad)
     assert metrics["readable"] is False
+    assert metrics.get("noDecoder") is False
     assert source_gate.gate_reason(metrics) == "解码失败"
 
 
@@ -103,3 +111,26 @@ def test_separate_tree_can_keep_rejected(work: Path) -> None:
 
     assert report["skipped"][0]["deleted"] is False
     assert (spk / "silent.wav").exists()
+
+def test_missing_decoder_does_not_condemn_the_file(work: Path, monkeypatch) -> None:
+    """环境缺 ffmpeg 时不能把文件判成坏文件（否则一个配置问题就删光数据集）。"""
+    bad = work / "song.mp3"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"not really audio")
+
+    monkeypatch.setattr(source_gate, "_ffmpeg", lambda: None)
+    metrics = source_gate.analyze(bad)
+
+    assert metrics["readable"] is False
+    assert metrics["noDecoder"] is True
+    assert source_gate.gate_reason(metrics) is None, "缺解码器不应拦截文件"
+
+    # 链路层：不会被删除，交给分离流程去报错
+    raw = work / "dataset_raw"
+    spk = raw / "spk"
+    spk.mkdir(parents=True, exist_ok=True)
+    bad2 = spk / "song.mp3"
+    bad2.write_bytes(b"not really audio")
+    report = dataset_separate.separate_tree(str(raw))
+    assert bad2.exists(), "缺解码器时不允许删除源文件"
+    assert all("song.mp3" not in s["relPath"] for s in report["skipped"])

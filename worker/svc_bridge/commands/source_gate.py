@@ -27,10 +27,21 @@ MIN_VOCAL_RMS_DBFS = -45.0
 
 
 def _ffmpeg() -> Optional[str]:
+    """找解码器：环境变量 → PATH → 安装目录下的 resources/bin/ffmpeg.exe。"""
     env = os.environ.get("SVCSTUDIO_FFMPEG")
     if env and Path(env).is_file():
         return env
-    return shutil.which("ffmpeg")
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    # 从 worker 目录向上找安装根的 resources/bin（app 未设置环境变量时兜底）
+    here = Path(__file__).resolve()
+    for up in list(here.parents)[:7]:
+        for rel in ("resources/bin/ffmpeg.exe", "resources/bin/ffmpeg"):
+            candidate = up / rel
+            if candidate.is_file():
+                return str(candidate)
+    return None
 
 
 def decode_mono(path: Path) -> Optional[audio.Wav]:
@@ -93,8 +104,15 @@ def analyze(path: Path) -> Dict[str, Any]:
     """返回该文件的体检指标；不可读时 readable=False。"""
     wav = decode_mono(path)
     if wav is None:
-        return {"readable": False, "error": "解码失败"}
+        return {
+            "readable": False,
+            # 缺解码器 = 环境问题，不能当成坏文件删除
+            "noDecoder": _ffmpeg() is None and path.suffix.lower() not in {".wav", ".wave"},
+            "error": "解码失败",
+        }
     samples = audio.to_mono_if_needed(wav)
+    # 只算一次 FFT：之前写成在 dict 里调用两次，白跑一遍全曲频谱
+    rolloff = _rolloff_hz(samples, wav.sample_rate)
     return {
         "readable": True,
         "seconds": round(wav.seconds, 2),
@@ -102,17 +120,20 @@ def analyze(path: Path) -> Dict[str, Any]:
         "silenceRatio": round(audio.silence_ratio(samples, wav.sample_rate), 4),
         "peakDbfs": round(audio.peak_dbfs(samples), 2),
         "rmsDbfs": round(audio.rms_dbfs(samples), 2),
-        "rolloffHz": (
-            round(_rolloff_hz(samples, wav.sample_rate), 0)
-            if _rolloff_hz(samples, wav.sample_rate) is not None
-            else None
-        ),
+        "rolloffHz": round(rolloff, 0) if rolloff is not None else None,
     }
 
 
 def gate_reason(metrics: Dict[str, Any]) -> Optional[str]:
-    """返回拦截原因；可处理返回 None。只拦客观不可用，不评判演唱。"""
+    """返回拦截原因；可处理返回 None。只拦客观不可用，不评判演唱。
+
+    注意：如果读不出来是**环境缺解码器**（ffmpeg 没就绪）而不是文件本身坏，
+    绝不能判文件死刑——否则一个配置问题就会把整个数据集删光。这种情况返回 None，
+    让后面的分离流程自己去报错。
+    """
     if not metrics.get("readable"):
+        if metrics.get("noDecoder"):
+            return None
         return "解码失败"
     seconds = float(metrics.get("seconds") or 0.0)
     if seconds < MIN_SECONDS:
