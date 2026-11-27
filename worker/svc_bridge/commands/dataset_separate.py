@@ -102,7 +102,12 @@ def _original_for(base: Path, spk: Path, src: Path) -> Path:
     return src
 
 
-def separate_tree(root: str, device: str = "", model: str = "htdemucs") -> Dict[str, Any]:
+def separate_tree(
+    root: str,
+    device: str = "",
+    model: str = "htdemucs",
+    drop_rejected: bool = True,
+) -> Dict[str, Any]:
     base = Path(root)
     torch_home = _prepare_torch_home()
     started = time.time()
@@ -139,9 +144,12 @@ def separate_tree(root: str, device: str = "", model: str = "htdemucs") -> Dict[
                             {
                                 "relPath": f"{spk.name}/{src.name}",
                                 "reason": reason,
+                                "deleted": drop_rejected,
                                 **{k: v for k, v in metrics.items() if k != "readable"},
                             }
                         )
+                        if drop_rejected:
+                            src.unlink(missing_ok=True)
                         continue
                     result = separate_song(sep_src, Path(tmp), device=device, model=model)
                     vocals = Path(str(result.get("vocals") or ""))
@@ -154,8 +162,11 @@ def separate_tree(root: str, device: str = "", model: str = "htdemucs") -> Dict[
                             {
                                 "relPath": f"{spk.name}/{src.name}",
                                 "reason": f"分离后干声几乎为空（{quiet:.1f} dBFS）",
+                                "deleted": drop_rejected,
                             }
                         )
+                        if drop_rejected:
+                            src.unlink(missing_ok=True)
                         continue
                     shutil.copyfile(vocals, dest)
                     engine = str(result.get("engine") or "unknown")

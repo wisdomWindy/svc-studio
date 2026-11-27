@@ -72,10 +72,14 @@ def prune_quality_tree(
     keep: float = 0.85,
     backup_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """按 SNR 代理从差到好排序，剔除最差的 (1-keep) 比例，移动到备份目录。"""
+    """按 SNR 代理从差到好排序，剔除最差的 (1-keep) 比例。
+
+    默认**直接删除**不合格片段（只保留合格音频）；
+    传 `backup_dir` 时改为移动到该目录，便于排障回滚。
+    """
     base = Path(root)
     keep = min(max(keep, 0.1), 1.0)
-    backup = Path(backup_dir) if backup_dir else base.parent / "_pruned"
+    backup = Path(backup_dir) if backup_dir else None
 
     scored: List[Dict[str, Any]] = []
     for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
@@ -92,16 +96,29 @@ def prune_quality_tree(
         readable.sort(key=lambda e: e["snrDb"])
         drop_count = int(round(len(readable) * (1.0 - keep)))
         for entry in readable[:drop_count]:
-            dest = backup / entry["speaker"] / entry["path"].name
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(entry["path"]), str(dest))
-            dropped.append(
-                {
-                    "relPath": f"{entry['speaker']}/{entry['path'].name}",
-                    "snrDb": entry["snrDb"],
-                    "to": str(dest),
-                }
-            )
+            # 默认直接删除（产品要求：只保留合格音频，不留备份副本）
+            # 传了 backup_dir 才改为移动到备份目录，便于手工排障时回滚
+            if backup is None:
+                entry["path"].unlink(missing_ok=True)
+                dropped.append(
+                    {
+                        "relPath": f"{entry['speaker']}/{entry['path'].name}",
+                        "snrDb": entry["snrDb"],
+                        "deleted": True,
+                    }
+                )
+            else:
+                dest = backup / entry["speaker"] / entry["path"].name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(entry["path"]), str(dest))
+                dropped.append(
+                    {
+                        "relPath": f"{entry['speaker']}/{entry['path'].name}",
+                        "snrDb": entry["snrDb"],
+                        "deleted": False,
+                        "to": str(dest),
+                    }
+                )
         kept -= len(dropped)
 
     return {
@@ -111,7 +128,8 @@ def prune_quality_tree(
         "readableFiles": len(readable),
         "keptFiles": kept,
         "droppedFiles": len(dropped),
-        "backupDir": str(backup),
+        "backupDir": str(backup) if backup is not None else None,
+        "deletedFiles": sum(1 for d in dropped if d.get("deleted")),
         "snrThresholdDb": round(dropped[-1]["snrDb"], 2) if dropped else None,
         "scores": [
             {k: v for k, v in e.items() if k != "path"} for e in readable

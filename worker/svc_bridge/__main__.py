@@ -63,6 +63,11 @@ def _add_dataset(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fade-ms", type=float, default=8.0)
     parser.add_argument("--keep", type=float, default=0.85)
     parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
+    parser.add_argument(
+        "--keep-rejected",
+        action="store_true",
+        help="体检不合格的源文件保留在磁盘上（默认直接删除，只留合格音频）",
+    )
 
 
 def _add_doctor(parser: argparse.ArgumentParser) -> None:
@@ -188,6 +193,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             str(args.keep),
             "--fade-ms",
             str(args.fade_ms),
+            *(["--keep-rejected"] if getattr(args, "keep_rejected", False) else []),
             *(["--events"] if getattr(args, "events", False) else []),
         ]
         if args.backup_dir:

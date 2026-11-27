@@ -86,7 +86,20 @@ def test_separate_tree_skips_hopeless_sources_and_reports_them(work: Path) -> No
     skipped = {s["relPath"]: s for s in report["skipped"]}
     assert "spk/silent.wav" in skipped, f"静音文件应被跳过，实际 skipped={report['skipped']}"
     assert "静音" in skipped["spk/silent.wav"]["reason"]
-    # 坏文件留在原地、不产生干声产物，也不进入 separated
-    assert (spk / "silent.wav").exists()
+    # 默认直接删除不合格源文件（只保留合格音频），不产生干声产物
+    assert not (spk / "silent.wav").exists()
+    assert skipped["spk/silent.wav"]["deleted"] is True
     assert not (spk / "silent.vocals.wav").exists()
     assert all(s["relPath"] != "spk/silent.wav" for s in report["separated"])
+
+
+def test_separate_tree_can_keep_rejected(work: Path) -> None:
+    """排障时可要求保留不合格文件（--keep-rejected）。"""
+    raw = work / "dataset_raw"
+    spk = raw / "spk"
+    _write(spk / "silent.wav", 10, kind="silence")
+
+    report = dataset_separate.separate_tree(str(raw), drop_rejected=False)
+
+    assert report["skipped"][0]["deleted"] is False
+    assert (spk / "silent.wav").exists()

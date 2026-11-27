@@ -149,3 +149,25 @@ def test_roformer_config_strips_unsafe_tuple_tag(work: Path) -> None:
     assert ns.audio.sample_rate == 44100
     assert ns.training.target_instrument == "Vocals"
     assert ns.inference.num_overlap == 4
+
+def test_prune_quality_deletes_by_default(work: Path) -> None:
+    """产品要求：只保留合格音频，不留备份副本。"""
+    import array
+
+    from svc_bridge import audio
+
+    root = work / "dataset_raw"
+    spk = root / "spk"
+    spk.mkdir(parents=True)
+    for i in range(4):
+        amp = 300 if i == 0 else 12000  # 第一个最安静 → SNR 代理最差
+        audio.write_wav(spk / f"f{i}.wav", array.array("h", [amp, -amp] * 44100), 44100, 1)
+
+    result = prune_quality_tree(str(root), keep=0.5)  # 不传 backup_dir
+
+    assert result["deletedFiles"] == 2
+    assert result["backupDir"] is None
+    assert result["droppedFiles"] == 2
+    assert len(list(spk.glob("*.wav"))) == 2, "被剔除的文件必须真的从磁盘删除"
+    assert not (work / "_pruned").exists(), "默认不应再产生备份目录"
+    assert all(d.get("deleted") is True for d in result["dropped"])

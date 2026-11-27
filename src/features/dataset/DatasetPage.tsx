@@ -177,8 +177,8 @@ export function DatasetPage() {
         : 0;
       const prunedFiles = typeof prepared.prunedFiles === "number" ? prepared.prunedFiles : 0;
       const quality: string[] = [];
-      if (skippedSources > 0) quality.push(`体检跳过 ${skippedSources} 个不可用源文件`);
-      if (prunedFiles > 0) quality.push(`剔除最差 ${prunedFiles} 段（已移至 backups，可回滚）`);
+      if (skippedSources > 0) quality.push(`体检删除 ${skippedSources} 个不可用源文件`);
+      if (prunedFiles > 0) quality.push(`剔除最差 ${prunedFiles} 段`);
       if (separatedCount > 0 || slicedCount > 0 || prepared.keptCount || quality.length) {
         setImportNote(
           [

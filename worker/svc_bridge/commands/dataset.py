@@ -532,6 +532,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--fade-ms", type=float, default=8.0)
     parser.add_argument("--keep", type=float, default=0.85)
     parser.add_argument("--events", action="store_true", help="逐文件输出进度事件")
+    parser.add_argument(
+        "--keep-rejected",
+        action="store_true",
+        help="体检不合格的源文件保留在磁盘上（默认直接删除，只留合格音频）",
+    )
     args = parser.parse_args(argv)
 
     if args.action == "scan":
@@ -563,7 +568,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.action == "separate":
         from .dataset_separate import separate_tree
 
-        result = separate_tree(args.root)
+        result = separate_tree(args.root, drop_rejected=not args.keep_rejected)
     elif args.action == "convert":
         from .dataset_convert import convert_tree
 

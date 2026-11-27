@@ -612,10 +612,8 @@ async fn run_prepare(
     let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
     stage("resample", "统一 44.1k 单声道…");
     let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
-    // 切片后按干声质量剔除最差 10%（移入 backups，不删除，可回滚）
+    // 切片后按干声质量剔除最差 10%（直接删除，只保留合格音频）
     stage("prune", "剔除最差 10% 片段…");
-    let stamp = crate::infra::db::now_iso().replace([':', '.'], "-");
-    let prune_backup = root.join("backups").join(format!("pruned-{stamp}"));
     let pruned = run_json(
         &python,
         &[
@@ -625,8 +623,6 @@ async fn run_prepare(
             &root_arg,
             "--keep",
             "0.9",
-            "--backup-dir",
-            &prune_backup.to_string_lossy(),
         ],
     )
     .await?;
