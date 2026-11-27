@@ -612,6 +612,24 @@ async fn run_prepare(
     let sliced = run_json(&python, &["dataset", "slice", "--root", &root_arg]).await?;
     stage("resample", "统一 44.1k 单声道…");
     let resampled = run_json(&python, &["dataset", "resample", "--root", &root_arg]).await?;
+    // 切片后按干声质量剔除最差 10%（移入 backups，不删除，可回滚）
+    stage("prune", "剔除最差 10% 片段…");
+    let stamp = crate::infra::db::now_iso().replace([':', '.'], "-");
+    let prune_backup = root.join("backups").join(format!("pruned-{stamp}"));
+    let pruned = run_json(
+        &python,
+        &[
+            "dataset",
+            "prune-quality",
+            "--root",
+            &root_arg,
+            "--keep",
+            "0.9",
+            "--backup-dir",
+            &prune_backup.to_string_lossy(),
+        ],
+    )
+    .await?;
     stage("finalize", "清理中间产物…");
     let finalized = run_json(&python, &["dataset", "finalize", "--root", &root_arg]).await?;
 
@@ -637,10 +655,14 @@ async fn run_prepare(
     Ok(serde_json::json!({
         "separated": sep_report.get("separated").cloned().unwrap_or(serde_json::Value::Null),
         "separatedSeconds": sep_report.get("seconds").cloned().unwrap_or(serde_json::Value::Null),
+        // 分离前体检跳过的源文件（解码失败/削波/长静音/时长异常），带原因
+        "skippedSources": sep_report.get("skipped").cloned().unwrap_or(serde_json::Value::Null),
         "converted": converted.get("converted").cloned().unwrap_or(serde_json::Value::Null),
         "skipped": converted.get("skipped").cloned().unwrap_or(serde_json::Value::Null),
         "sliced": sliced.get("sliced").cloned().unwrap_or(serde_json::Value::Null),
         "resampled": resampled.get("changed").cloned().unwrap_or(serde_json::Value::Null),
+        "prunedFiles": pruned.get("droppedFiles").cloned().unwrap_or(serde_json::Value::Null),
+        "prunedBackupDir": pruned.get("backupDir").cloned().unwrap_or(serde_json::Value::Null),
         "keptCount": finalized.get("keptCount").cloned().unwrap_or(serde_json::Value::Null),
         "removedCount": finalized
             .get("removed")

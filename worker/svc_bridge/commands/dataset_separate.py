@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from . import source_gate
+
 WAV_EXTS = {".wav", ".wave"}
 AUDIO_EXTS = WAV_EXTS | {".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".wma"}
 
@@ -110,6 +112,8 @@ def separate_tree(root: str, device: str = "", model: str = "htdemucs") -> Dict[
 
     separated: List[Dict[str, Any]] = []
     failed: List[Dict[str, str]] = []
+    # 分离前体检：明显不可用的源文件直接跳过（省一次 GPU），并如实记录原因
+    skipped: List[Dict[str, Any]] = []
     backup_root = base / "_original"
     engines: Dict[str, int] = {}
 
@@ -128,11 +132,31 @@ def separate_tree(root: str, device: str = "", model: str = "htdemucs") -> Dict[
             try:
                 with tempfile.TemporaryDirectory() as tmp:
                     sep_src = _original_for(base, spk, src)
+                    metrics = source_gate.analyze(sep_src)
+                    reason = source_gate.gate_reason(metrics)
+                    if reason:
+                        skipped.append(
+                            {
+                                "relPath": f"{spk.name}/{src.name}",
+                                "reason": reason,
+                                **{k: v for k, v in metrics.items() if k != "readable"},
+                            }
+                        )
+                        continue
                     result = separate_song(sep_src, Path(tmp), device=device, model=model)
                     vocals = Path(str(result.get("vocals") or ""))
                     if not vocals.is_file():
                         raise RuntimeError(f"分离结果缺失：{result}")
                     _ensure_pcm16(vocals)
+                    quiet = source_gate.vocal_too_quiet(vocals)
+                    if quiet is not None:
+                        skipped.append(
+                            {
+                                "relPath": f"{spk.name}/{src.name}",
+                                "reason": f"分离后干声几乎为空（{quiet:.1f} dBFS）",
+                            }
+                        )
+                        continue
                     shutil.copyfile(vocals, dest)
                     engine = str(result.get("engine") or "unknown")
                     engines[engine] = engines.get(engine, 0) + 1
@@ -162,5 +186,6 @@ def separate_tree(root: str, device: str = "", model: str = "htdemucs") -> Dict[
         "offlineWeights": str(torch_home) if torch_home else None,
         "seconds": round(time.time() - started, 1),
         "separated": separated,
+        "skipped": skipped,
         "failed": failed,
     }

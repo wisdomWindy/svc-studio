@@ -172,9 +172,22 @@ export function DatasetPage() {
       const prepared = await waitForPrepare(project.id);
       const separatedCount = Array.isArray(prepared.separated) ? prepared.separated.length : 0;
       const slicedCount = Array.isArray(prepared.sliced) ? prepared.sliced.length : 0;
-      if (separatedCount > 0 || slicedCount > 0 || prepared.keptCount) {
+      const skippedSources = Array.isArray(prepared.skippedSources)
+        ? prepared.skippedSources.length
+        : 0;
+      const prunedFiles = typeof prepared.prunedFiles === "number" ? prepared.prunedFiles : 0;
+      const quality: string[] = [];
+      if (skippedSources > 0) quality.push(`体检跳过 ${skippedSources} 个不可用源文件`);
+      if (prunedFiles > 0) quality.push(`剔除最差 ${prunedFiles} 段（已移至 backups，可回滚）`);
+      if (separatedCount > 0 || slicedCount > 0 || prepared.keptCount || quality.length) {
         setImportNote(
-          `${parts.join("，")}；已分离 ${separatedCount} 个、切片 ${slicedCount} 个，最终保留 ${prepared.keptCount ?? 0} 段干声（原始文件与中间产物已清理）`,
+          [
+            `${parts.join("，")}；已分离 ${separatedCount} 个、切片 ${slicedCount} 个`,
+            quality.join("、"),
+            `最终保留 ${prepared.keptCount ?? 0} 段干声（原始文件与中间产物已清理）`,
+          ]
+            .filter(Boolean)
+            .join("，"),
         );
       }
       const scanned = await backend.datasetScan(project.id);
