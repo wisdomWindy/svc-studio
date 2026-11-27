@@ -598,6 +598,100 @@ pub fn dataset_prepare(
     Ok(())
 }
 
+/// 跑带 `--events` 的 worker 命令，把逐文件进度转发成 `dataset-progress` 事件。
+///
+/// 分离一首歌要十几秒，界面必须能看到「已分离 N/M」而不是一句静态文案。
+/// 结果仍从 `{"kind":"result","data":…}` 事件取，stderr 丢弃（torch/librosa 警告很多，
+/// 管道写满会把子进程卡死）。
+async fn run_streaming(
+    python: &std::path::Path,
+    args: &[&str],
+    app: &tauri::AppHandle,
+    stage_name: &str,
+    label: &str,
+) -> AppResult<serde_json::Value> {
+    use tauri::Emitter;
+
+    let mut cmd = tokio::process::Command::new(python);
+    crate::core::proc::hide_console_async(&mut cmd);
+    cmd.args(["-m", "svc_bridge"]);
+    cmd.args(args);
+    cmd.arg("--events");
+    for (k, v) in crate::core::runtime::worker_env(&crate::core::runtime::resolve_worker_dir()) {
+        cmd.env(k, v);
+    }
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::null());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        Box::new(AppError::new(
+            "SVC-1001",
+            "无法启动 worker",
+            format!("{}: {e}", python.display()),
+        ))
+    })?;
+
+    let mut result: Option<serde_json::Value> = None;
+    let mut failure: Option<String> = None;
+    if let Some(stdout) = child.stdout.take() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+                continue;
+            };
+            match value.get("kind").and_then(|k| k.as_str()) {
+                Some("progress") => {
+                    let step = value.get("step").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let total = value.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                    app.emit(
+                        "dataset-progress",
+                        serde_json::json!({
+                            "kind": "prepare",
+                            "stage": stage_name,
+                            "step": step,
+                            "total": total,
+                            "message": if total > 0 {
+                                format!("{label} {step}/{total}")
+                            } else {
+                                format!("{label}…")
+                            },
+                        }),
+                    )
+                    .ok();
+                }
+                Some("result") => result = value.get("data").cloned(),
+                Some("error") => {
+                    failure = Some(format!(
+                        "[{}] {}",
+                        value
+                            .get("code")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("SVC-3001"),
+                        value
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("worker 报告错误")
+                    ))
+                }
+                _ => {}
+            }
+        }
+    }
+    let _ = child.wait().await;
+
+    if let Some(err) = failure {
+        return Err(Box::new(AppError::new("SVC-3001", "分离失败", err)));
+    }
+    result.ok_or_else(|| {
+        Box::new(AppError::new(
+            "SVC-3001",
+            "worker 没有返回结果",
+            format!("{stage_name} 结束但没有 result 事件"),
+        ))
+    })
+}
+
 async fn run_prepare(
     python: std::path::PathBuf,
     root: std::path::PathBuf,
@@ -625,7 +719,15 @@ async fn run_prepare(
     let mut sep_report = serde_json::Value::Null;
     if separate {
         stage("separate", "分离人声（UVR5 MDX23C）…");
-        sep_report = run_json(&python, &["dataset", "separate", "--root", &root_arg]).await?;
+        // 流式跑：逐文件回传「已分离 N/M」，不再是一句静态文案
+        sep_report = run_streaming(
+            &python,
+            &["dataset", "separate", "--root", &root_arg],
+            app,
+            "separate",
+            "已分离",
+        )
+        .await?;
         let sep_failed = sep_report
             .get("failed")
             .and_then(|v| v.as_array())

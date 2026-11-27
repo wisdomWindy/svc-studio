@@ -144,3 +144,27 @@ def test_prune_quality_keep_flag_is_forwarded(work: Path) -> None:
     # round(10 * 0.15) = round(1.5) = 2（Python 的银行家舍入）
     assert default_keep["droppedFiles"] == 2
     assert dataset_quality  # 保持 import，确保模块可加载
+
+def test_separate_events_mode_streams_progress_then_result(work: Path) -> None:
+    """--events 模式：stdout 是 JSONL，进度单调推进，最后恰好一条 result。"""
+    raw = work / "dataset_raw"
+    spk = raw / "spk"
+    for name in ("a.wav", "b.wav", "c.wav"):
+        _make_wav(spk / name, seconds=6.0)
+
+    proc = _run_cli(["dataset", "separate", "--root", str(raw), "--events"], cwd=work)
+    events = []
+    for line in proc.stdout.strip().splitlines():
+        events.append(json.loads(line))  # 每行都必须是合法 JSON
+
+    kinds = [e["kind"] for e in events]
+    assert kinds.count("result") == 1, f"必须恰好一条 result，实际 {kinds}"
+    assert kinds[-1] == "result"
+
+    progress = [e for e in events if e["kind"] == "progress"]
+    assert progress, "应至少上报一次进度"
+    steps = [e["step"] for e in progress]
+    assert steps[0] == 0, "开始时先报 0/总数"
+    assert steps == sorted(steps), f"进度必须单调不减：{steps}"
+    assert progress[-1]["total"] == 3
+    assert steps[-1] in (3,), f"结束时步数应等于总数，实际 {steps[-1]}"

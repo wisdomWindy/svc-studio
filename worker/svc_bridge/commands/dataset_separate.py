@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import quality_metrics, source_gate
 
@@ -107,6 +107,7 @@ def separate_tree(
     device: str = "",
     model: str = "htdemucs",
     drop_rejected: bool = True,
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> Dict[str, Any]:
     base = Path(root)
     torch_home = _prepare_torch_home()
@@ -122,6 +123,8 @@ def separate_tree(
     backup_root = base / "_original"
     engines: Dict[str, int] = {}
 
+    # 先收集待处理清单：进度需要「总数」，不能边遍历边算
+    jobs: List[tuple] = []
     for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
         for src in sorted(p for p in spk.iterdir() if p.is_file()):
             ext = src.suffix.lower()
@@ -134,6 +137,14 @@ def separate_tree(
             dest = spk / f"{src.stem}.vocals.wav"
             if dest.exists():
                 continue
+            jobs.append((spk, src, dest))
+
+    total = len(jobs)
+    if on_progress is not None:
+        on_progress(0, total)
+
+    for done, (spk, src, dest) in enumerate(jobs, 1):
+        if True:
             try:
                 with tempfile.TemporaryDirectory() as tmp:
                     sep_src = _original_for(base, spk, src)
@@ -192,6 +203,11 @@ def separate_tree(
                 )
             except Exception as exc:  # noqa: BLE001
                 failed.append({"relPath": f"{spk.name}/{src.name}", "error": str(exc)})
+            finally:
+                # continue 也会触发 finally：确保「跳过/失败」的文件同样推进进度，
+                # 否则界面会停在 已分离 0/N。
+                if on_progress is not None:
+                    on_progress(done, total)
 
     return {
         "schema": "svcstudio.dataset.separate/1",

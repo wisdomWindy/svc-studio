@@ -56,7 +56,7 @@ def test_too_short_is_blocked(work: Path) -> None:
 
 def test_too_long_is_blocked(work: Path) -> None:
     metrics = source_gate.analyze(_write(work / "long.wav", 6))
-    metrics["seconds"] = 1200.0
+    metrics["seconds"] = 4 * 3600 + 10  # 超过 4 小时的兜底上限
     assert "时长过长" in (source_gate.gate_reason(metrics) or "")
 
 
@@ -134,3 +134,34 @@ def test_missing_decoder_does_not_condemn_the_file(work: Path, monkeypatch) -> N
     report = dataset_separate.separate_tree(str(raw))
     assert bad2.exists(), "缺解码器时不允许删除源文件"
     assert all("song.mp3" not in s["relPath"] for s in report["skipped"])
+
+def test_long_merged_corpus_is_allowed(work: Path) -> None:
+    """合并好的长语料（如 2664s 的 merged_all.wav）是合法输入，靠 slice 切分，不该被拦。"""
+    metrics = source_gate.analyze(_write(work / "merged.wav", 6))
+    metrics["seconds"] = 2663.9
+    assert source_gate.gate_reason(metrics) is None, "长合并文件不应被时长判据拦截"
+
+    # 真正的荒谬输入（超过 4 小时）仍然拦
+    metrics["seconds"] = 4 * 3600 + 1
+    assert "时长过长" in (source_gate.gate_reason(metrics) or "")
+
+def test_separate_reports_progress_per_file(work: Path) -> None:
+    """界面要显示「已分离 N/M」：每个文件处理完都要推进一次，含被跳过/失败的。"""
+    raw = work / "dataset_raw"
+    spk = raw / "spk"
+    _write(spk / "a.wav", 10, kind="silence")  # 体检拦截，不需要模型
+    _write(spk / "b.wav", 10, kind="silence")
+
+    calls: list[tuple[int, int]] = []
+    dataset_separate.separate_tree(str(raw), on_progress=lambda step, total: calls.append((step, total)))
+
+    assert calls[0] == (0, 2), "开始时必须先报一次 0/总数"
+    assert calls[-1] == (2, 2), "结束时必须报满"
+    assert len(calls) == 3, f"两个文件应产生 3 次回调（0/2、1/2、2/2），实际 {calls}"
+
+
+def test_separate_progress_is_optional(work: Path) -> None:
+    raw = work / "dataset_raw"
+    _write(raw / "spk" / "a.wav", 10, kind="silence")
+    report = dataset_separate.separate_tree(str(raw))  # 不传 on_progress 也应正常
+    assert report["ok"] is True

@@ -598,7 +598,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.action == "separate":
         from .dataset_separate import separate_tree
 
-        result = separate_tree(args.root, drop_rejected=not args.keep_rejected)
+        if getattr(args, "events", False):
+            from .. import rpc
+
+            result = separate_tree(
+                args.root,
+                drop_rejected=not args.keep_rejected,
+                # 逐文件进度：9.01s 一窗的分离很慢，界面必须能看到 已分离 N/M
+                on_progress=lambda step, total: rpc.emit_progress("separate", step, total),
+            )
+            rpc.emit("result", data=result)
+        else:
+            result = separate_tree(args.root, drop_rejected=not args.keep_rejected)
     elif args.action == "convert":
         from .dataset_convert import convert_tree
 
