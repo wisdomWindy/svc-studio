@@ -172,6 +172,44 @@ def halve_batch_size(config_path: str, minimum: int = 1) -> Optional[int]:
     os.replace(tmp, path)
     return int(train["batch_size"])
 
+def dataset_readiness(project_path: Path, config_path: Path) -> Optional[Dict[str, str]]:
+    """训练前置检查：数据集/文件清单为空时给出明确原因，而不是让 DataLoader 抛
+    `num_samples should be a positive integer value, but got num_samples=0`。
+
+    返回 None 表示可以训练；否则返回 {code, message, detail}。
+    """
+    # 1) 读配置里的文件清单路径（上游默认 filelists/train.txt）
+    list_rel = "filelists/train.txt"
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        list_rel = (cfg.get("data") or {}).get("training_files") or list_rel
+    except Exception:  # noqa: BLE001
+        pass
+    list_path = Path(list_rel)
+    if not list_path.is_absolute():
+        list_path = project_path / list_rel
+    lines = []
+    if list_path.is_file():
+        lines = [ln for ln in list_path.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
+
+    # 2) 数据集目录里的 wav 数量（更直观，也是用户能理解的口径）
+    wavs = 0
+    dataset_dir = project_path / "dataset" / "44k"
+    if dataset_dir.is_dir():
+        wavs = sum(1 for p in dataset_dir.rglob("*.wav") if p.is_file())
+
+    if wavs == 0 or not lines:
+        return {
+            "code": "SVC-3003",
+            "message": "没有可训练的音频",
+            "detail": (
+                f"dataset/44k 下 {wavs} 个 wav，文件清单 {list_rel} 有 {len(lines)} 行；"
+                "请先在数据集页导入素材并完成处理（分离/切片/精修）"
+            ),
+        }
+    return None
+
+
 def run_train(
     project: str,
     upstream: str,
@@ -191,6 +229,7 @@ def run_train(
     if not _cfg.is_absolute():
         _cfg = project_path / config_path
     force_single_process_loader(str(_cfg))
+
     argv = build_argv(upstream, config_path, model_dir, kind=kind)
     if train_script:
         argv[1] = train_script
@@ -205,6 +244,39 @@ def run_train(
     def send(event: Dict[str, Any]) -> None:
         if emit is not None:
             emit(event)
+
+    # 前置检查：空数据集直接给明确错误，不启动训练进程
+    # （否则 DataLoader 会抛 num_samples should be a positive integer, 用户看不懂）
+    # 只在真正跑上游训练时检查：注入自定义 train_script 的场景（单元测试）不涉及数据集。
+    blocked = dataset_readiness(project_path, _cfg) if train_script is None else None
+    if blocked is not None:
+        send(
+            {
+                "kind": "error",
+                "code": blocked["code"],
+                "message": blocked["message"],
+                "cause": blocked["detail"],
+                "retriable": False,
+            }
+        )
+        result = {
+            "schema": "svcstudio.train/1",
+            "exitCode": 1,
+            "lastStep": 0,
+            "oom": False,
+            "hostOom": False,
+            "diverged": False,
+            "stoppedForSmoke": False,
+            "elapsedSeconds": 0.0,
+            "modelDir": model_dir,
+            "finishedAt": _now(),
+            "code": blocked["code"],
+            "message": blocked["message"],
+            "detail": blocked["detail"],
+        }
+        if _emit_result:
+            send({"kind": "result", "data": result})
+        return result
 
     send({"kind": "stage", "stage": kind, "message": f"启动训练：{' '.join(argv)}"})
     started = time.time()

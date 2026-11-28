@@ -37,6 +37,16 @@ fn temp_project() -> PathBuf {
     std::fs::create_dir_all(dir.join("upstream")).unwrap();
     std::fs::write(dir.join("configs/config.json"), "{}").unwrap();
     std::fs::write(dir.join("upstream/train.py"), SLOW_TRAIN).unwrap();
+    // worker 的训练前置检查要求「有音频 + 文件清单非空」（否则返回 SVC-3003）。
+    // 这里的上游是假脚本、不读音频，所以放占位文件即可。
+    std::fs::create_dir_all(dir.join("dataset/44k/spk")).unwrap();
+    std::fs::write(dir.join("dataset/44k/spk/a.wav"), b"placeholder").unwrap();
+    std::fs::create_dir_all(dir.join("filelists")).unwrap();
+    std::fs::write(
+        dir.join("filelists/train.txt"),
+        "dataset/44k/spk/a.wav|spk|0\n",
+    )
+    .unwrap();
     dir
 }
 
