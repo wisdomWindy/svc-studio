@@ -830,17 +830,26 @@ async fn run_streaming(
             }
         }
     }
-    let _ = child.wait().await;
+    let status = child.wait().await.ok();
 
     if let Some(err) = failure {
         return Err(Box::new(AppError::new("SVC-3001", "分离失败", err)));
     }
     result.ok_or_else(|| {
-        Box::new(AppError::new(
-            "SVC-3001",
-            "worker 没有返回结果",
-            format!("{stage_name} 结束但没有 result 事件"),
-        ))
+        // 进程被结束/崩溃时不会有 result 事件：把退出码带上，别只报"没有返回结果"
+        let code = status.as_ref().and_then(|s| s.code());
+        let detail = match code {
+            Some(c) => format!(
+                "{stage_name} 结束但没有 result 事件（退出码 {c}）。\
+                 可能是处理进程被结束，或内存/显存不足导致崩溃；可重试一次，\
+                 若反复出现请查看任务页的事件记录"
+            ),
+            None => format!(
+                "{stage_name} 结束但没有 result 事件（进程被强制终止）。\
+                 可能是手动结束了处理进程，或被系统因内存压力终止"
+            ),
+        };
+        Box::new(AppError::new("SVC-3001", "worker 没有返回结果", detail))
     })
 }
 

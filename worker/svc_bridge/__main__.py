@@ -345,4 +345,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # 兜底：任何未捕获异常都要以 error 事件结束，而不是静默退出。
+    # 否则主进程只能报「worker 没有返回结果」，用户看不出发生了什么。
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001
+        from . import exit_codes as _codes
+        from .rpc import emit, emit_log
+
+        detail = f"{type(exc).__name__}: {exc}"
+        emit_log(f"unhandled exception: {detail}", level="error")
+        emit("error", code="SVC-1001", message=detail, retriable=False)
+        raise SystemExit(_codes.USAGE) from None
