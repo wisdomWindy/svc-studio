@@ -6,6 +6,11 @@ export interface DatasetState {
   upToDate: boolean;
 }
 
+/** 状态行只在"处理过"之后才有意义：未处理时不占位（避免"尚未处理"这类噪音提示）。 */
+export function showDatasetState(state: DatasetState | null): boolean {
+  return Boolean(state?.preparedAt);
+}
+
 /** 状态行：明确「进入本页只做质检，不会重跑分离/切片」。 */
 export function datasetStateText(state: DatasetState | null): string {
   if (!state?.preparedAt) {

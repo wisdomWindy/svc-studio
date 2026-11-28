@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { datasetStateText, gateHeadline, prepareButtonLabel } from "@/lib/datasetState";
+import {
+  datasetStateText,
+  gateHeadline,
+  prepareButtonLabel,
+  showDatasetState,
+} from "@/lib/datasetState";
 
 describe("数据集处理状态", () => {
   it("没处理过：提示导入后会自动跑一次，之后只做质检", () => {
@@ -56,5 +61,17 @@ describe("门禁结论标题", () => {
       "1 个阻断项 · 1 条提示",
     );
     expect(gateHeadline({ passed: false, blocking: [{}, {}], warnings: [] })).toBe("2 个阻断项");
+  });
+});
+describe("处理状态行的显示条件", () => {
+  it("未处理时不显示（不占位、不显示「尚未处理」噪音）", () => {
+    expect(showDatasetState(null)).toBe(false);
+    expect(showDatasetState({ preparedAt: null, keptCount: null, upToDate: false })).toBe(false);
+  });
+
+  it("处理过之后才显示", () => {
+    expect(showDatasetState({ preparedAt: "2026-11-28T10:30:00", keptCount: 3, upToDate: true })).toBe(
+      true,
+    );
   });
 });

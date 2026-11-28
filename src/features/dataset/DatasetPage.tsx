@@ -10,6 +10,7 @@ import {
   datasetStateText,
   gateHeadline,
   prepareButtonLabel,
+  showDatasetState,
   type DatasetState,
 } from "@/lib/datasetState";
 import { DatasetDropZone } from "./DatasetDropZone";
@@ -438,10 +439,12 @@ export function DatasetPage() {
         </div>
       )}
 
-      {/* 处理状态：明确告诉用户「进入本页只做质检，不会重跑分离/切片」 */}
-      <p className="mt-2 text-[11px] text-muted" data-testid="dataset-state">
-        {datasetStateText(prepared)}
-      </p>
+      {/* 处理状态：仅在"已处理过"之后显示；未处理时不占位，避免噪音提示 */}
+      {showDatasetState(prepared) && (
+        <p className="mt-2 text-[11px] text-muted" data-testid="dataset-state">
+          {datasetStateText(prepared)}
+        </p>
+      )}
 
       <div className="grid gap-3 lg:grid-cols-[1.55fr_1fr]">
         {/* 左列：QC 报告 */}
