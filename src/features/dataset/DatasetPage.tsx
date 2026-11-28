@@ -45,6 +45,10 @@ export function DatasetPage() {
   const [prepared, setPrepared] = useState<DatasetState | null>(null);
   // 后端互斥锁：有值表示数据集正在跑别的写操作（分离/切片/质检…）
   const [busyOp, setBusyOp] = useState<string | null>(null);
+  // 处理中的实时文案（"已分离 0/1"），和"处理完成"的 importNote 分开，避免看起来像已完成
+  const [progressNote, setProgressNote] = useState<string | null>(null);
+  // 后端释放锁后 +1，触发整页重载（扫描/带宽/状态/质检）
+  const [reloadKey, setReloadKey] = useState(0);
 
   // 切换选中项目时自动加载它的数据集状态，不需要用户再点一次「结构扫描」
   useEffect(() => {
@@ -56,11 +60,11 @@ export function DatasetPage() {
     }
     const id = project.id;
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
     setScan(null);
     setQc(null);
     setError(null);
     setImportNote(null);
+    setProgressNote(null);
     setScanning(true);
 
     async function loadAll() {
@@ -108,24 +112,9 @@ export function DatasetPage() {
         .catch(() => ({ busy: false, op: null as string | null }));
       if (cancelled) return;
       if (running.busy) {
+        // 轮询交给下面的 busyOp effect：它会在后端释放锁后触发 reloadKey 重载
         setBusyOp(running.op ?? "其他操作");
         setScanning(false);
-        // 轮询到它结束为止，结束后再正常加载 + 质检
-        timer = setInterval(() => {
-          void backend
-            .datasetBusy(id)
-            .then((next) => {
-              if (cancelled) return;
-              if (!next.busy) {
-                if (timer) clearInterval(timer);
-                timer = undefined;
-                setBusyOp(null);
-                setScanning(true);
-                void loadAll();
-              }
-            })
-            .catch(() => undefined);
-        }, 2000);
         return;
       }
       await loadAll();
@@ -133,11 +122,32 @@ export function DatasetPage() {
 
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
     };
-    // 只在项目变化时重新加载
+    // 项目变化、后端释放锁后都要重载
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id]);
+  }, [project?.id, reloadKey]);
+
+  // 有操作在跑时每 2 秒问一次后端；锁一释放就整页刷新（含补跑质检）
+  useEffect(() => {
+    if (!project || !busyOp) return;
+    const id = project.id;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void backend
+        .datasetBusy(id)
+        .then((next) => {
+          if (cancelled || next.busy) return;
+          setBusyOp(null);
+          setProgressNote(null);
+          setReloadKey((k) => k + 1);
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [project, busyOp]);
 
 
   // 启动后台 QC 并等它跑完：进度通过 dataset-progress(kind=qc) 回传
@@ -191,24 +201,32 @@ export function DatasetPage() {
   async function waitForPrepare(projectId: string) {
     return new Promise<Record<string, any>>((resolve, reject) => {
       let unlisten: (() => void) | undefined;
+      let settled = false;
       void listen<{ stage: string; message?: string; result?: Record<string, any>; code?: string; cause?: string }>(
         "dataset-progress",
         (event) => {
+          if (settled) return;
           const payload = event.payload;
           if (payload.stage === "done") {
+            settled = true;
             unlisten?.();
+            setProgressNote(null);
             resolve(payload.result ?? {});
           } else if (payload.stage === "error") {
+            settled = true;
             unlisten?.();
+            setProgressNote(null);
             reject(new Error(`[${payload.code ?? "SVC-3001"}] ${payload.message ?? "数据集处理失败"}${payload.cause ? `：${payload.cause}` : ""}`));
           } else if (payload.message) {
-            setImportNote(payload.message);
+            setProgressNote(payload.message);
           }
         },
       ).then((fn) => {
         unlisten = fn;
       });
       void backend.datasetPrepare(projectId, separateVocals).catch((e) => {
+        if (settled) return;
+        settled = true;
         unlisten?.();
         reject(e);
       });
@@ -278,12 +296,28 @@ export function DatasetPage() {
   /** 重新跑一遍数据集处理链：分离 → 转码 → 切片 → 44.1k → 精修 → 清理 */
   async function startPrepare() {
     if (!project) return;
-    setBusy("prepare");
     setError(null);
     setImportNote(null);
+    // 先问后端：已经在处理就直接"接入"（显示进度并等它结束），不要重复发起
+    const running = await backend
+      .datasetBusy(project.id)
+      .catch(() => ({ busy: false, op: null as string | null }));
+    if (running.busy) {
+      setBusyOp(running.op ?? "处理数据集");
+      return;
+    }
+    setBusy("prepare");
+    // 后端拿到锁后立刻标记，避免"处理中却能再点一次"的错觉
+    setBusyOp("处理数据集");
     try {
       void backend.datasetPrepare(project.id, separateVocals).catch((e) => {
-        setError(toErrorText(e));
+        const text = toErrorText(e);
+        // 竞态（刚好被别人抢到锁）不是错误，转为"正在处理"状态
+        if (text.includes("SVC-3010")) {
+          setBusyOp("处理数据集");
+          return;
+        }
+        setError(text);
       });
       const prepared = await waitForPrepare(project.id);
       const separated = Array.isArray(prepared.separated) ? prepared.separated.length : 0;
@@ -297,9 +331,11 @@ export function DatasetPage() {
       void backend.datasetBandwidth(project.id).then(setBandwidth).catch(() => undefined);
       void backend.datasetState(project.id).then(setPrepared).catch(() => undefined);
     } catch (e) {
-      setError(toErrorText(e));
+      const text = toErrorText(e);
+      if (!text.includes("SVC-3010")) setError(text);
     } finally {
       setBusy(null);
+      // busyOp 由轮询 effect 在后端释放锁后清掉并触发重载
     }
   }
 
@@ -379,6 +415,14 @@ export function DatasetPage() {
         </p>
       )}
 
+      {/* 处理中的实时进度：明确写「处理中」，不要和"处理完成"的提示混在一起 */}
+      {progressNote && (
+        <p className="mt-2 flex items-center gap-2 text-[12px] text-accent">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          处理中：{progressNote}
+        </p>
+      )}
+
       {importNote && (
         <p className="mt-2 text-[12px] text-ok">
           {importNote}
@@ -390,7 +434,7 @@ export function DatasetPage() {
       {busyOp && (
         <div className="mt-2 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-[12px] text-warn">
           数据集正在执行「{busyOp}」——期间不允许质检、切片、分离等操作（避免读到写了一半的文件）。
-          结束后会自动刷新并跑质检。
+          处理结束后会自动刷新并跑质检；现在点「开始处理数据集」不会重复启动。
         </div>
       )}
 
