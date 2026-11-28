@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { datasetStateText, prepareButtonLabel } from "@/lib/datasetState";
+import { datasetStateText, gateHeadline, prepareButtonLabel } from "@/lib/datasetState";
 
 describe("数据集处理状态", () => {
   it("没处理过：提示导入后会自动跑一次，之后只做质检", () => {
@@ -37,5 +37,24 @@ describe("数据集处理状态", () => {
     expect(prepareButtonLabel({ preparedAt: "x", keptCount: 1, upToDate: true }, true)).toBe(
       "处理中…",
     );
+  });
+});
+
+describe("门禁结论标题", () => {
+  it("通过且无提示 → 通过", () => {
+    expect(gateHeadline({ passed: true, blocking: [], warnings: [] })).toBe("通过");
+  });
+
+  it("通过但有提示 → 通过 · N 条提示（不能只写通过）", () => {
+    expect(gateHeadline({ passed: true, blocking: [], warnings: [{}, {}] })).toBe(
+      "通过 · 2 条提示",
+    );
+  });
+
+  it("不通过 → 阻断项数 + 提示数", () => {
+    expect(gateHeadline({ passed: false, blocking: [{}], warnings: [{}] })).toBe(
+      "1 个阻断项 · 1 条提示",
+    );
+    expect(gateHeadline({ passed: false, blocking: [{}, {}], warnings: [] })).toBe("2 个阻断项");
   });
 });

@@ -6,7 +6,12 @@ import { listen } from "@tauri-apps/api/event";
 import { backend, type BandwidthReport } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { formatDuration, statusLabel } from "@/lib/format";
-import { datasetStateText, prepareButtonLabel, type DatasetState } from "@/lib/datasetState";
+import {
+  datasetStateText,
+  gateHeadline,
+  prepareButtonLabel,
+  type DatasetState,
+} from "@/lib/datasetState";
 import { DatasetDropZone } from "./DatasetDropZone";
 import { toErrorText } from "@/lib/errors";
 
@@ -434,7 +439,7 @@ export function DatasetPage() {
               <div className="flex items-center justify-between">
                 <span className="text-[13px] font-medium">门禁结论</span>
                 <span className={qc.assertions.passed ? "text-[12px] text-ok" : "text-[12px] text-danger"}>
-                  {qc.assertions.passed ? "通过" : `${qc.assertions.blocking.length} 个阻断项`}
+                  {gateHeadline(qc.assertions)}
                 </span>
               </div>
               <ul className="mt-2 space-y-1 text-[12px]">

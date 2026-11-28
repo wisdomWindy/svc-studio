@@ -276,6 +276,8 @@ def qc(root: str, on_progress: Optional[Callable[[int, int], None]] = None) -> D
             "nonWav": scanned["nonWav"],
             "emptyDirs": scanned["emptyDirs"],
             "nested": scanned["nested"],
+            # 带上结构扫描自己的阻断项，QC 结论会把它们合并进来
+            "blocking": scanned.get("blocking", []),
         },
     }
     assert_report = assert_thresholds(report)
@@ -290,6 +292,21 @@ def assert_thresholds(report: Dict[str, Any]) -> Dict[str, Any]:
     metrics = report["metrics"]
     blocking: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
+
+    # 结构扫描的阻断项必须并进 QC 结论。
+    # 否则会出现自相矛盾的界面：扫描结果说「没有任何说话人目录」，QC 却显示"通过"。
+    for item in report.get("scan", {}).get("blocking", []) or []:
+        blocking.append(dict(item))
+
+    # 空数据集没有任何东西可质检：这是阻断，不是"通过 + 一条时长提示"。
+    if report["summary"]["fileCount"] == 0:
+        blocking.append(
+            {
+                "code": "SVC-3003",
+                "message": "没有任何可质检的音频",
+                "detail": "0 个 wav 文件：先导入素材并跑一次处理（分离/转码/切片）",
+            }
+        )
 
     if metrics["duration"]["max"] > MAX_CLIP_SECONDS:
         blocking.append(
@@ -342,11 +359,13 @@ def assert_thresholds(report: Dict[str, Any]) -> Dict[str, Any]:
                 "detail": item["suggestion"],
             }
         )
-    if report["summary"]["lowData"]:
+    # 30 分钟是"建议量"，不是硬门槛：有数据时只提示（可显式豁免），
+    # 空数据集已经被上面的 SVC-3003 阻断，不再重复报时长。
+    if report["summary"]["lowData"] and report["summary"]["fileCount"] > 0:
         warnings.append(
             {
                 "code": "SVC-3004",
-                "message": "总时长低于 30 分钟",
+                "message": f"总时长低于 30 分钟（{report['summary']['totalMinutes']:.1f} 分钟）",
                 "detail": "训练前需要显式豁免，报告会标注 low_data",
             }
         )

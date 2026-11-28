@@ -24,3 +24,17 @@ export function prepareButtonLabel(state: DatasetState | null, busy: boolean): s
   if (busy) return "处理中…";
   return state?.upToDate ? "重新处理（仅新文件）" : "开始处理数据集";
 }
+
+/** 门禁结论标题：通过时也要把「提示」条数带出来，避免"通过"和下面的红/黄行互相矛盾。 */
+export function gateHeadline(assertions: {
+  passed: boolean;
+  blocking: unknown[];
+  warnings: unknown[];
+}): string {
+  const b = assertions.blocking.length;
+  const w = assertions.warnings.length;
+  if (assertions.passed) {
+    return w > 0 ? `通过 · ${w} 条提示` : "通过";
+  }
+  return w > 0 ? `${b} 个阻断项 · ${w} 条提示` : `${b} 个阻断项`;
+}
