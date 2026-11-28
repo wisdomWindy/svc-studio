@@ -166,6 +166,65 @@ def _split_long_source(ffmpeg: str, src: Path, part_seconds: float) -> List[Path
     return parts
 
 
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+            )
+            if not handle:
+                return False
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def acquire_separate_lock(base: Path) -> Path:
+    """跨进程互斥：同一个数据集同时只允许一个分离进程。
+
+    应用内的 DatasetLock 只在单个进程内有效；实测出现过同一 app 实例下两个
+    `dataset separate` 同时跑、抢同一块 GPU 的情况（两个进程各占 ~7GB 内存、
+    GPU 100%，41 分钟的文件跑了 30 分钟还没完）。这里用「锁文件 + PID 存活检查」
+    做第二道闸：持有者进程已死则视为陈旧锁并接管。
+
+    返回锁文件路径；被占用时抛 RuntimeError。
+    """
+    lock = base.parent / ".svcstudio" / "separate.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    if lock.is_file():
+        try:
+            holder = int((lock.read_text(encoding="utf-8") or "0").strip() or 0)
+        except Exception:  # noqa: BLE001
+            holder = 0
+        if holder and holder != os.getpid() and _pid_alive(holder):
+            raise RuntimeError(
+                f"数据集正在被另一个分离进程占用（PID {holder}）。"
+                "请等它结束；如果确认该进程已异常退出，删除锁文件后重试："
+                f"{lock}"
+            )
+    lock.write_text(str(os.getpid()), encoding="utf-8")
+    return lock
+
+
+def _release_separate_lock(lock: Optional[Path]) -> None:
+    if lock is None:
+        return
+    try:
+        if lock.is_file() and lock.read_text(encoding="utf-8").strip() == str(os.getpid()):
+            lock.unlink()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def separate_tree(
     root: str,
     device: str = "",
@@ -174,6 +233,34 @@ def separate_tree(
     on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> Dict[str, Any]:
     base = Path(root)
+    # 跨进程互斥：并发分离会把 GPU/内存打满，实测两个进程各 7GB、GPU 100% 互相拖慢
+    try:
+        lock = acquire_separate_lock(base)
+    except RuntimeError as exc:
+        # 不抛异常：调用方按 busy 处理并给出可读错误（SVC-3010）
+        return {
+            "schema": "svcstudio.dataset.separate/1",
+            "ok": False,
+            "busy": True,
+            "error": str(exc),
+            "separated": [],
+            "skipped": [],
+            "failed": [],
+            "engines": {},
+        }
+    try:
+        return _separate_tree_locked(base, device, model, drop_rejected, on_progress)
+    finally:
+        _release_separate_lock(lock)
+
+
+def _separate_tree_locked(
+    base: Path,
+    device: str,
+    model: str,
+    drop_rejected: bool,
+    on_progress: Optional[Callable[[int, int], None]],
+) -> Dict[str, Any]:
     torch_home = _prepare_torch_home()
     started = time.time()
 

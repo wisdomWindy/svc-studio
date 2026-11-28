@@ -663,6 +663,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             drop_rejected=not args.keep_rejected,
             on_progress=progress("separate"),
         )
+        if isinstance(result, dict) and result.get("busy"):
+            from .. import rpc
+
+            rpc.emit(
+                "error",
+                code="SVC-3010",
+                message=result.get("error") or "数据集正在被另一个分离进程占用",
+                retriable=False,
+            )
+            return exit_codes.USAGE
     elif args.action == "convert":
         from .dataset_convert import convert_tree
 
