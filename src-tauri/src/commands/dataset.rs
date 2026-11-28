@@ -139,6 +139,8 @@ pub fn dataset_qc(
     project_id: String,
 ) -> AppResult<()> {
     let python = crate::commands::settings::python_for_state(&state)?;
+    // 互斥：数据集正在分离/切片时不允许跑质检（否则会读到写了一半的数据）
+    let _guard = state.dataset_lock.clone().acquire(&project_id, "质检")?;
     let root = project_root(&state, &project_id)?;
     let dir = dataset_raw(&root);
     if !dir.is_dir() {
@@ -328,6 +330,8 @@ pub async fn dataset_slice(
     min_interval_ms: Option<i64>,
 ) -> AppResult<serde_json::Value> {
     let python = crate::commands::settings::python_for_state(&state)?;
+    // 互斥：同一项目同一时刻只跑一个写操作
+    let _guard = state.dataset_lock.clone().acquire(&project_id, "切片")?;
     let root = project_root(&state, &project_id)?;
     let dir = dataset_raw(&root);
     let min_s = min_seconds.unwrap_or(5.0);
@@ -357,6 +361,8 @@ pub async fn dataset_resample(
     project_id: String,
 ) -> AppResult<serde_json::Value> {
     let python = crate::commands::settings::python_for_state(&state)?;
+    // 互斥：同一项目同一时刻只跑一个写操作
+    let _guard = state.dataset_lock.clone().acquire(&project_id, "重采样")?;
     let root = project_root(&state, &project_id)?;
     let dir = dataset_raw(&root);
     run_json(
@@ -536,6 +542,8 @@ pub async fn dataset_import(
         .db
         .with(|c| crate::core::repo::projects::get(c, &project_id))?
         .ok_or_else(|| Box::new(AppError::new("SVC-7004", "项目不存在", project_id.clone())))?;
+    // 互斥：导入也在写数据集，和分离/切片/质检不能并行
+    let _guard = state.dataset_lock.clone().acquire(&project_id, "导入")?;
     let raw = dataset_raw(Path::new(&project.root_path));
     let target = crate::commands::dataset_import::speaker_dir(&raw, project.speaker.as_deref());
 
@@ -579,9 +587,16 @@ pub fn dataset_prepare(
     let separate = separate.unwrap_or(true);
     // 先确认 python 可用，避免异步启动后才发现环境问题
     let python = crate::commands::settings::python_for_state(&state)?;
+    // 互斥锁在这里**同步**获取：连点两次也只会有一次真正启动。
+    // guard 移进异步任务，任务结束（成功/失败/取消）自动释放。
+    let guard = state
+        .dataset_lock
+        .clone()
+        .acquire(&project_id, "处理数据集")?;
     let root = project_root(&state, &project_id)?;
     let handle2 = handle.clone();
     tauri::async_runtime::spawn(async move {
+        let _guard = guard;
         let progress = |stage: &str, message: &str| {
             handle2
                 .emit(
@@ -679,6 +694,26 @@ fn write_dataset_state(root: &Path, result: &serde_json::Value, separate: bool) 
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(path, payload.to_string());
+}
+
+/// 当前数据集是否正在执行写操作（分离/切片/质检/导入…）。
+///
+/// 界面据此：① 禁用其他操作按钮 ② 正在处理时不再自动跑质检
+/// ③ 切页面回来仍能看到「正在执行 X」。
+#[tauri::command]
+pub fn dataset_busy(
+    state: State<'_, AppPaths>,
+    project_id: String,
+) -> AppResult<serde_json::Value> {
+    let busy = state.dataset_lock.current(&project_id);
+    Ok(match busy {
+        Some(info) => serde_json::json!({
+            "busy": true,
+            "op": info.op,
+            "elapsedMs": info.started_ms,
+        }),
+        None => serde_json::json!({ "busy": false, "op": null, "elapsedMs": null }),
+    })
 }
 
 /// 读数据集处理状态：界面据此显示「已处理」并决定按钮文案。

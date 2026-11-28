@@ -140,6 +140,11 @@ export const backend = {
   // QC 走后台任务，进度通过 dataset-progress 事件回传（kind="qc"）
   datasetQc: (projectId: string) => call<void>("dataset_qc", { projectId }),
   // 导入后立即可查：素材带宽 → 模型输出亮度上限预估
+  /** 数据集是否正在执行写操作（分离/切片/质检/导入）；界面据此禁用其他操作 */
+  datasetBusy: (projectId: string) =>
+    call<{ busy: boolean; op: string | null; elapsedMs: number | null }>("dataset_busy", {
+      projectId,
+    }),
   /** 数据集处理状态：已处理时间 / 最终保留数 / 源文件是否有新增 */
   datasetState: (projectId: string) =>
     call<{

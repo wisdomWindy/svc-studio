@@ -38,6 +38,8 @@ export function DatasetPage() {
   const [bandwidth, setBandwidth] = useState<BandwidthReport | null>(null);
   // 处理状态：进入页面只做扫描+质检，绝不再自动分离/切片
   const [prepared, setPrepared] = useState<DatasetState | null>(null);
+  // 后端互斥锁：有值表示数据集正在跑别的写操作（分离/切片/质检…）
+  const [busyOp, setBusyOp] = useState<string | null>(null);
 
   // 切换选中项目时自动加载它的数据集状态，不需要用户再点一次「结构扫描」
   useEffect(() => {
@@ -49,13 +51,14 @@ export function DatasetPage() {
     }
     const id = project.id;
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
     setScan(null);
     setQc(null);
     setError(null);
     setImportNote(null);
     setScanning(true);
 
-    void (async () => {
+    async function loadAll() {
       try {
         const scanned = await backend.datasetScan(id);
         if (cancelled) return;
@@ -90,10 +93,42 @@ export function DatasetPage() {
       } finally {
         if (!cancelled) setScanning(false);
       }
+    }
+
+    void (async () => {
+      // 先看后端有没有正在跑的写操作：有就**不要**自动跑质检
+      // （分离/切片正在写文件时，质检会读到写了一半的数据）
+      const running = await backend
+        .datasetBusy(id)
+        .catch(() => ({ busy: false, op: null as string | null }));
+      if (cancelled) return;
+      if (running.busy) {
+        setBusyOp(running.op ?? "其他操作");
+        setScanning(false);
+        // 轮询到它结束为止，结束后再正常加载 + 质检
+        timer = setInterval(() => {
+          void backend
+            .datasetBusy(id)
+            .then((next) => {
+              if (cancelled) return;
+              if (!next.busy) {
+                if (timer) clearInterval(timer);
+                timer = undefined;
+                setBusyOp(null);
+                setScanning(true);
+                void loadAll();
+              }
+            })
+            .catch(() => undefined);
+        }, 2000);
+        return;
+      }
+      await loadAll();
     })();
 
     return () => {
       cancelled = true;
+      if (timer) clearInterval(timer);
     };
     // 只在项目变化时重新加载
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -294,10 +329,10 @@ export function DatasetPage() {
         description="结构校验 → QC 七项 → 切片 → 统一 44.1k 单声道。阻断项清零才能进入预处理。"
         actions={
           <div className="flex gap-2">
-            <Button disabled={!!busy} onClick={() => void run("scan", () => backend.datasetScan(project.id), setScan)}>
+            <Button disabled={!!busy || !!busyOp} onClick={() => void run("scan", () => backend.datasetScan(project.id), setScan)}>
               {busy === "scan" ? "扫描中…" : "结构扫描"}
             </Button>
-            <Button variant="primary" disabled={!!busy} onClick={() => void run("qc", () => runQc(project.id), setQc)}>
+            <Button variant="primary" disabled={!!busy || !!busyOp} onClick={() => void run("qc", () => runQc(project.id), setQc)}>
               {busy === "qc" ? "质检中…" : "运行 QC"}
             </Button>
           </div>
@@ -308,7 +343,7 @@ export function DatasetPage() {
       {error && <ErrorNotice error={error} compact />}
 
       <DatasetDropZone
-        disabled={!!busy}
+        disabled={!!busy || !!busyOp}
         busy={busy === "import"}
         onImport={(paths) => void handleImport(paths)}
       />
@@ -343,6 +378,14 @@ export function DatasetPage() {
         </p>
       )}
 
+      {/* 互斥提示：别的写操作在跑时，这里的所有按钮都禁用 */}
+      {busyOp && (
+        <div className="mt-2 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-[12px] text-warn">
+          数据集正在执行「{busyOp}」——期间不允许质检、切片、分离等操作（避免读到写了一半的文件）。
+          结束后会自动刷新并跑质检。
+        </div>
+      )}
+
       {/* 处理状态：明确告诉用户「进入本页只做质检，不会重跑分离/切片」 */}
       <p className="mt-2 text-[11px] text-muted" data-testid="dataset-state">
         {datasetStateText(prepared)}
@@ -368,7 +411,7 @@ export function DatasetPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant={prepared?.upToDate ? "ghost" : "primary"}
-              disabled={!!busy}
+              disabled={!!busy || !!busyOp}
               onClick={() => void startPrepare()}
               title={
                 prepared?.upToDate
@@ -378,10 +421,10 @@ export function DatasetPage() {
             >
               {prepareButtonLabel(prepared, busy === "prepare")}
             </Button>
-            <Button disabled={!!busy} onClick={() => void run("slice", () => backend.datasetSlice(project.id), () => setScan(null))}>
+            <Button disabled={!!busy || !!busyOp} onClick={() => void run("slice", () => backend.datasetSlice(project.id), () => setScan(null))}>
               {busy === "slice" ? "切片中…" : "切片 5–15s"}
             </Button>
-            <Button disabled={!!busy} onClick={() => void run("resample", () => backend.datasetResample(project.id), () => setScan(null))}>
+            <Button disabled={!!busy || !!busyOp} onClick={() => void run("resample", () => backend.datasetResample(project.id), () => setScan(null))}>
               {busy === "resample" ? "转换中…" : "统一 44.1k 单声道"}
             </Button>
           </div>

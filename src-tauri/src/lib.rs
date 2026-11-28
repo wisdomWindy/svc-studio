@@ -36,6 +36,8 @@ pub struct AppPaths {
     pub running: Arc<commands::train::RunningJobs>,
     /// 最近一次环境自检的结论；未跑过为 None。
     pub doctor: Arc<std::sync::Mutex<Option<core::gate::DoctorGate>>>,
+    /// 数据集写操作互斥：同一项目同一时刻只允许一个分离/切片/质检…
+    pub dataset_lock: Arc<core::dataset_lock::DatasetLock>,
     /// 最近一次自检里读到的显卡信息（名称、显存）。
     pub gpu: Arc<std::sync::Mutex<Option<(String, i64)>>>,
 }
@@ -72,6 +74,7 @@ fn init_state() -> Result<AppPaths, String> {
         runner: Arc::new(Runner::new()),
         scheduler: Scheduler::new(),
         running: Arc::new(commands::train::RunningJobs::default()),
+        dataset_lock: Arc::new(core::dataset_lock::DatasetLock::new()),
         doctor: Arc::new(std::sync::Mutex::new(None)),
         gpu: Arc::new(std::sync::Mutex::new(None)),
         reconciled,
@@ -344,6 +347,7 @@ pub fn run() {
             commands::dataset::dataset_bandwidth,
             commands::models::model_compat,
             commands::dataset::dataset_state,
+            commands::dataset::dataset_busy,
             commands::dataset::dataset_import,
             commands::dataset::dataset_prepare,
             commands::dataset::dataset_qc,
