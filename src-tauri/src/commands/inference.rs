@@ -478,6 +478,39 @@ pub(crate) fn infer_start_impl(
                                 },
                             ));
                         }
+                        Some(crate::bridge::protocol::WorkerEvent::Stage { stage, message }) => {
+                            // 「事件」面板要能看出当前卡在哪一步（分离人声 / 转换 / 已完成 N/M）
+                            let now = now_iso();
+                            let _ = db.with(|c| {
+                                crate::core::repo::jobs::append_event(
+                                    c,
+                                    &job_for_task,
+                                    &crate::core::repo::jobs::NewJobEvent {
+                                        level: "info",
+                                        code: Some(&stage),
+                                        message: message.as_deref().unwrap_or(&stage),
+                                        data_json: None,
+                                        ts: &now,
+                                    },
+                                )
+                            });
+                        }
+                        Some(crate::bridge::protocol::WorkerEvent::Log { level, message }) => {
+                            let now = now_iso();
+                            let _ = db.with(|c| {
+                                crate::core::repo::jobs::append_event(
+                                    c,
+                                    &job_for_task,
+                                    &crate::core::repo::jobs::NewJobEvent {
+                                        level: &level,
+                                        code: None,
+                                        message: &message,
+                                        data_json: None,
+                                        ts: &now,
+                                    },
+                                )
+                            });
+                        }
                         Some(_) => {}
                     }
                 }

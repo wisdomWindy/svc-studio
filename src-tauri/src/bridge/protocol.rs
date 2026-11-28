@@ -20,6 +20,9 @@ pub enum WorkerEvent {
     },
     Stage {
         stage: String,
+        /// 阶段说明（worker 会带 "分离人声…" / "已完成 2/3" 这类文案）。
+        #[serde(default)]
+        message: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Progress {
