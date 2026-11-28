@@ -495,6 +495,34 @@ mod tests {
         assert!((seconds - 1.0).abs() < 0.05, "时长 {seconds}");
         let _ = std::fs::remove_dir_all(base);
     }
+
+    #[test]
+    fn dataset_state_records_signature_and_detects_new_files() {
+        // 状态文件的作用：进入数据集页时判断「已处理过没有」，
+        // 指纹一致就说明源文件没变，界面只会提示做质检。
+        let base = std::env::temp_dir().join(format!("svc-dataset-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let raw = base.join("dataset_raw").join("spk");
+        std::fs::create_dir_all(&raw).unwrap();
+        std::fs::write(raw.join("a.mp3"), b"x").unwrap();
+
+        let sig1 = raw_signature(&base);
+        assert_eq!(sig1["files"], 1);
+
+        write_dataset_state(&base, &serde_json::json!({"keptCount": 5}), true);
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(state_path(&base)).unwrap()).unwrap();
+        assert_eq!(saved["keptCount"], 5);
+        assert_eq!(saved["raw"], sig1, "状态里应记下处理时的源文件指纹");
+
+        // 新增文件后指纹必须变化 → upToDate 会变 false
+        std::fs::write(raw.join("b.mp3"), b"y").unwrap();
+        let sig2 = raw_signature(&base);
+        assert_eq!(sig2["files"], 2);
+        assert_ne!(sig1, sig2);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
 
 /// 把用户从资源管理器选中的文件/目录复制进项目的受管目录。
@@ -596,6 +624,95 @@ pub fn dataset_prepare(
         }
     });
     Ok(())
+}
+
+/// 数据集处理状态文件：记录「什么时候、按什么参数处理过、当时有多少源文件」。
+///
+/// 存在它的意义：进入数据集页只做扫描 + 质检，绝不再自动分离/切片；
+/// 同时界面能明确显示「已处理」，并告诉用户重跑只会处理新增文件
+/// （worker 侧 separate_tree 会跳过已存在的 `*.vocals.wav`）。
+fn state_path(root: &Path) -> std::path::PathBuf {
+    root.join(".svcstudio").join("dataset_state.json")
+}
+
+/// 源文件指纹：文件数 + 最新修改时间（毫秒）。用来判断"处理之后有没有新增/改动"。
+fn raw_signature(root: &Path) -> serde_json::Value {
+    let dir = dataset_raw(root);
+    let mut count = 0u64;
+    let mut newest = 0u128;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for spk in entries.flatten() {
+            if !spk.path().is_dir() {
+                continue;
+            }
+            if let Ok(files) = std::fs::read_dir(spk.path()) {
+                for f in files.flatten() {
+                    let p = f.path();
+                    if !p.is_file() {
+                        continue;
+                    }
+                    count += 1;
+                    if let Ok(meta) = p.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {
+                                newest = newest.max(dur.as_millis());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    serde_json::json!({ "files": count, "newestMs": newest as u64 })
+}
+
+fn write_dataset_state(root: &Path, result: &serde_json::Value, separate: bool) {
+    let payload = serde_json::json!({
+        "schema": "svcstudio.dataset.state/1",
+        "preparedAt": now_iso(),
+        "separate": separate,
+        "keptCount": result.get("keptCount").cloned().unwrap_or(serde_json::Value::Null),
+        "raw": raw_signature(root),
+    });
+    let path = state_path(root);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, payload.to_string());
+}
+
+/// 读数据集处理状态：界面据此显示「已处理」并决定按钮文案。
+#[tauri::command]
+pub fn dataset_state(
+    state: State<'_, AppPaths>,
+    project_id: String,
+) -> AppResult<serde_json::Value> {
+    let root = project_root(&state, &project_id)?;
+    let current = raw_signature(&root);
+    let mut prepared_at: Option<String> = None;
+    let mut kept: serde_json::Value = serde_json::Value::Null;
+    let mut prepared_sig: serde_json::Value = serde_json::Value::Null;
+    if let Ok(text) = std::fs::read_to_string(state_path(&root)) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+            prepared_at = value
+                .get("preparedAt")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            kept = value
+                .get("keptCount")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            prepared_sig = value.get("raw").cloned().unwrap_or(serde_json::Value::Null);
+        }
+    }
+    // 处理时与现在的源文件指纹一致 = 没有新增文件，重跑什么都不会做
+    let up_to_date = prepared_at.is_some() && prepared_sig == current;
+    Ok(serde_json::json!({
+        "preparedAt": prepared_at,
+        "keptCount": kept,
+        "raw": current,
+        "upToDate": up_to_date,
+    }))
 }
 
 /// 跑带 `--events` 的 worker 命令，把逐文件进度转发成 `dataset-progress` 事件。
@@ -813,7 +930,7 @@ async fn run_prepare(
         )));
     }
 
-    Ok(serde_json::json!({
+    let result = serde_json::json!({
         "separated": sep_report.get("separated").cloned().unwrap_or(serde_json::Value::Null),
         "separatedSeconds": sep_report.get("seconds").cloned().unwrap_or(serde_json::Value::Null),
         // 分离前体检跳过的源文件（解码失败/削波/长静音/时长异常），带原因
@@ -839,5 +956,8 @@ async fn run_prepare(
             .and_then(|v| v.as_array())
             .map(|v| v.len())
             .unwrap_or(0),
-    }))
+    });
+    // 记下「已处理」：下次进入数据集页只做扫描+质检，不再自动分离/切片
+    write_dataset_state(&root, &result, separate);
+    Ok(result)
 }

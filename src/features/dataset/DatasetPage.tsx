@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { backend, type BandwidthReport } from "@/lib/backend";
 import { useActiveProject } from "@/lib/store";
 import { formatDuration, statusLabel } from "@/lib/format";
+import { datasetStateText, prepareButtonLabel, type DatasetState } from "@/lib/datasetState";
 import { DatasetDropZone } from "./DatasetDropZone";
 import { toErrorText } from "@/lib/errors";
 
@@ -35,6 +36,8 @@ export function DatasetPage() {
   const [importNote, setImportNote] = useState<string | null>(null);
   const [separateVocals, setSeparateVocals] = useState(true);
   const [bandwidth, setBandwidth] = useState<BandwidthReport | null>(null);
+  // 处理状态：进入页面只做扫描+质检，绝不再自动分离/切片
+  const [prepared, setPrepared] = useState<DatasetState | null>(null);
 
   // 切换选中项目时自动加载它的数据集状态，不需要用户再点一次「结构扫描」
   useEffect(() => {
@@ -62,6 +65,13 @@ export function DatasetPage() {
           .datasetBandwidth(id)
           .then((b) => {
             if (!cancelled) setBandwidth(b);
+          })
+          .catch(() => undefined);
+        // 处理状态：只读，不触发任何分离/切片
+        void backend
+          .datasetState(id)
+          .then((s) => {
+            if (!cancelled) setPrepared(s);
           })
           .catch(() => undefined);
       } catch (e) {
@@ -213,6 +223,8 @@ export function DatasetPage() {
       setQc(await runQc(project.id));
       // 导入后立刻给带宽预估（只读源文件），不用等分离跑完
       void backend.datasetBandwidth(project.id).then(setBandwidth).catch(() => undefined);
+      // 处理链刚跑过：刷新「已处理」状态，按钮随之变成「重新处理（仅新文件）」
+      void backend.datasetState(project.id).then(setPrepared).catch(() => undefined);
     } catch (e) {
       setError(toErrorText(e));
     } finally {
@@ -240,6 +252,7 @@ export function DatasetPage() {
       setScan(await backend.datasetScan(project.id));
       setQc(await runQc(project.id));
       void backend.datasetBandwidth(project.id).then(setBandwidth).catch(() => undefined);
+      void backend.datasetState(project.id).then(setPrepared).catch(() => undefined);
     } catch (e) {
       setError(toErrorText(e));
     } finally {
@@ -330,6 +343,11 @@ export function DatasetPage() {
         </p>
       )}
 
+      {/* 处理状态：明确告诉用户「进入本页只做质检，不会重跑分离/切片」 */}
+      <p className="mt-2 text-[11px] text-muted" data-testid="dataset-state">
+        {datasetStateText(prepared)}
+      </p>
+
       <div className="grid gap-3 lg:grid-cols-[1.55fr_1fr]">
         {/* 左列：QC 报告 */}
         <div>
@@ -349,12 +367,16 @@ export function DatasetPage() {
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
-              variant="primary"
+              variant={prepared?.upToDate ? "ghost" : "primary"}
               disabled={!!busy}
               onClick={() => void startPrepare()}
-              title="分离 → 转码 → 切片 → 统一 44.1k → 精修 → 清理；预处理在下一步单独跑"
+              title={
+                prepared?.upToDate
+                  ? "已处理过：重跑只会处理新增文件（已分离/已切片的会跳过）"
+                  : "分离 → 转码 → 切片 → 统一 44.1k → 精修 → 清理；预处理在下一步单独跑"
+              }
             >
-              {busy === "prepare" ? "处理中…" : "开始处理数据集"}
+              {prepareButtonLabel(prepared, busy === "prepare")}
             </Button>
             <Button disabled={!!busy} onClick={() => void run("slice", () => backend.datasetSlice(project.id), () => setScan(null))}>
               {busy === "slice" ? "切片中…" : "切片 5–15s"}

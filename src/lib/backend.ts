@@ -140,6 +140,14 @@ export const backend = {
   // QC 走后台任务，进度通过 dataset-progress 事件回传（kind="qc"）
   datasetQc: (projectId: string) => call<void>("dataset_qc", { projectId }),
   // 导入后立即可查：素材带宽 → 模型输出亮度上限预估
+  /** 数据集处理状态：已处理时间 / 最终保留数 / 源文件是否有新增 */
+  datasetState: (projectId: string) =>
+    call<{
+      preparedAt: string | null;
+      keptCount: number | null;
+      raw: { files: number; newestMs: number };
+      upToDate: boolean;
+    }>("dataset_state", { projectId }),
   datasetBandwidth: (projectId: string) =>
     call<BandwidthReport>("dataset_bandwidth", { projectId }),
   datasetSlice: (

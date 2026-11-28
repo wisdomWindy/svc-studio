@@ -343,6 +343,7 @@ pub fn run() {
             commands::dataset::dataset_scan,
             commands::dataset::dataset_bandwidth,
             commands::models::model_compat,
+            commands::dataset::dataset_state,
             commands::dataset::dataset_import,
             commands::dataset::dataset_prepare,
             commands::dataset::dataset_qc,
