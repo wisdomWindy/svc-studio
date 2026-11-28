@@ -7,7 +7,9 @@ MDX23C 权重（随安装包分发）与 Demucs 兜底，导入后自动跑，�
 from __future__ import annotations
 
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -18,6 +20,11 @@ from . import quality_metrics, source_gate
 
 WAV_EXTS = {".wav", ".wave"}
 AUDIO_EXTS = WAV_EXTS | {".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".wma"}
+
+# 单段分离上限：超过就先切段。
+# 41 分钟整段交给 RoFormer 会为整条轨道累积中间数组，把主机内存打满（实测可用 3GB 时整机换页），
+# 而且中间没有任何进度。切段后内存按段回收，进度也能逐段上报。
+MAX_SEPARATE_SECONDS = 600.0
 
 
 def _prepare_torch_home() -> Optional[Path]:
@@ -102,6 +109,63 @@ def _original_for(base: Path, spk: Path, src: Path) -> Path:
     return src
 
 
+def _ffmpeg_for_split() -> Optional[str]:
+    """找 ffmpeg（切段用）：复用 source_gate 的解析顺序，找不到就返回 None（不切段）。"""
+    try:
+        return source_gate._ffmpeg()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _probe_seconds(ffmpeg: Optional[str], src: Path) -> float:
+    """快速取时长：用 ffmpeg 的 Duration 行，不解码整段（41 分钟素材解码一次要十几秒）。"""
+    if not ffmpeg:
+        return 0.0
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-hide_banner", "-i", str(src)],
+            capture_output=True, text=True, encoding="utf-8", errors="ignore",
+            **({"creationflags": 0x08000000} if os.name == "nt" else {}),
+        )
+        match = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", proc.stderr or "")
+        if not match:
+            return 0.0
+        h, m, s = match.groups()
+        return int(h) * 3600 + int(m) * 60 + float(s)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _split_long_source(ffmpeg: str, src: Path, part_seconds: float) -> List[Path]:
+    """把超长素材按固定时长切成若干段（无损 PCM），返回切好的文件。
+
+    为什么要切：整段 41 分钟的音频交给 RoFormer，需要为整条轨道累积中间数组，
+    主机内存会被打满（实测可用内存只剩 3GB 时整机开始疯狂换页），而且中间没有任何进度，
+    用户只能干等。切成 ≤part_seconds 的段后，内存按段回收、进度也能逐段上报。
+    """
+    duration = _probe_seconds(ffmpeg, src)
+    if duration <= part_seconds or part_seconds <= 0:
+        return []
+    parts: List[Path] = []
+    index = 1
+    offset = 0.0
+    while offset < duration - 1.0:
+        part = src.with_name(f"{src.stem}.part{index:02d}.wav")
+        subprocess.run(
+            [
+                ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                "-ss", f"{offset:.3f}", "-t", f"{part_seconds:.3f}", "-i", str(src),
+                "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le", str(part),
+            ],
+            check=True,
+            **({"creationflags": 0x08000000} if os.name == "nt" else {}),
+        )
+        parts.append(part)
+        offset += part_seconds
+        index += 1
+    return parts
+
+
 def separate_tree(
     root: str,
     device: str = "",
@@ -125,6 +189,8 @@ def separate_tree(
 
     # 先收集待处理清单：进度需要「总数」，不能边遍历边算
     jobs: List[tuple] = []
+    split_reports: List[Dict[str, Any]] = []
+    ffmpeg = _ffmpeg_for_split()
     for spk in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("_")):
         for src in sorted(p for p in spk.iterdir() if p.is_file()):
             ext = src.suffix.lower()
@@ -134,9 +200,38 @@ def separate_tree(
             # 否则对已经处理过的数据集再点一次「自动分离」，会把切片当成原曲重跑一遍。
             if ".vocals" in src.stem:
                 continue
+            # 跳过之前切出来的分段：它们由原文件派生，避免二次切分
+            if ".part" in src.stem:
+                continue
             dest = spk / f"{src.stem}.vocals.wav"
             if dest.exists():
                 continue
+            # 超长素材先切段：整段分离会打满内存且没有中间进度
+            seconds = _probe_seconds(ffmpeg, src)
+            if ffmpeg and seconds > MAX_SEPARATE_SECONDS:
+                try:
+                    parts = _split_long_source(ffmpeg, src, MAX_SEPARATE_SECONDS)
+                except Exception as exc:  # noqa: BLE001
+                    parts = []
+                    failed.append({"relPath": f"{spk.name}/{src.name}", "reason": f"切段失败: {exc}"})
+                if parts:
+                    backup_root.mkdir(parents=True, exist_ok=True)
+                    backup = backup_root / spk.name
+                    backup.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.move(str(src), str(backup / src.name))
+                    except Exception:  # noqa: BLE001
+                        src.unlink(missing_ok=True)
+                    split_reports.append(
+                        {
+                            "relPath": f"{spk.name}/{src.name}",
+                            "seconds": round(seconds, 1),
+                            "parts": len(parts),
+                        }
+                    )
+                    for part in parts:
+                        jobs.append((spk, part, spk / f"{part.stem}.vocals.wav"))
+                    continue
             jobs.append((spk, src, dest))
 
     total = len(jobs)
@@ -222,4 +317,7 @@ def separate_tree(
         "quality": quality_metrics.summarize([s.get("quality") or {} for s in separated]),
         "skipped": skipped,
         "failed": failed,
+        # 超长素材被切段处理的记录（原文件已移入 _original/）
+        "splitSources": split_reports,
+        "maxSeparateSeconds": MAX_SEPARATE_SECONDS,
     }

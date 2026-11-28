@@ -238,6 +238,9 @@ export function DatasetPage() {
         typeof prepared.refinedRejected === "number" ? prepared.refinedRejected : 0;
       const refinedStats = (prepared.refinedStats ?? {}) as Record<string, number | null>;
       const quality: string[] = [];
+      // 超长素材会被自动切段再分离（原文件移入 _original/），如实告诉用户
+      const splitSources = Array.isArray(prepared.splitSources) ? prepared.splitSources.length : 0;
+      if (splitSources > 0) quality.push(`${splitSources} 个超长素材已先切段再分离`);
       if (skippedSources > 0) quality.push(`体检删除 ${skippedSources} 个不可用源文件`);
       if (refinedRejected > 0) quality.push(`精修删除 ${refinedRejected} 个不合格切片`);
       const sepQuality = (prepared.separationQuality ?? {}) as Record<string, number | null>;

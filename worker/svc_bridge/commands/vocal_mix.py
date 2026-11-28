@@ -117,6 +117,34 @@ def _build_roformer(model_name: str, model_kwargs: dict):
     return cls(**kwargs)
 
 
+# 进程内缓存：同一批文件只加载一次模型。
+# 之前每个文件都 build 网络 + torch.load(约 700MB 权重) + 推理后 empty_cache()，
+# 几百个文件光"加载权重"就要几十分钟，这是分离慢的主因。
+_ROFORMER_CACHE: Dict[tuple, Any] = {}
+
+
+def _roformer_model(
+    model_name: str, model_file: Path, cfg_path: Path, device_name: str
+):
+    """按 (模型名, 设备) 复用已加载的 RoFormer；返回 (model, cfg)。"""
+    import torch
+
+    key = (model_name, device_name)
+    cached = _ROFORMER_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    raw_cfg, cfg = _load_roformer_config(cfg_path)
+    model = _build_roformer(model_name, raw_cfg["model"])
+    state = torch.load(str(model_file), map_location="cpu", weights_only=False)
+    if isinstance(state, dict) and "state_dict" in state:
+        state = state["state_dict"]
+    model.load_state_dict(state)
+    model.to(torch.device(device_name)).eval()
+    _ROFORMER_CACHE[key] = (model, cfg)
+    return model, cfg
+
+
 def separate_song_roformer(
     src: Path, dest_dir: Path, device: str = "", model_name: str = ROFORMER_MODEL
 ) -> Optional[Dict[str, Any]]:
@@ -159,12 +187,8 @@ def separate_song_roformer(
     if device in ("cpu", "cuda"):
         dev = torch.device(device)
 
-    model = _build_roformer(model_name, raw_cfg["model"])
-    state = torch.load(str(model_file), map_location="cpu", weights_only=False)
-    if isinstance(state, dict) and "state_dict" in state:
-        state = state["state_dict"]
-    model.load_state_dict(state)
-    model.to(dev).eval()
+    # 复用缓存：同一进程内对整批文件只加载一次权重
+    model, cfg = _roformer_model(model_name, model_file, cfg_path, str(dev))
 
     mix, _sr = bsr.load_audio_stereo_at_sr(str(src), TARGET_SR)
     overlap = getattr(getattr(cfg, "inference", None), "num_overlap", 4)
@@ -186,9 +210,7 @@ def separate_song_roformer(
     sf.write(str(vocals), vocal, TARGET_SR, subtype="FLOAT")
     sf.write(str(accomp), acc, TARGET_SR, subtype="FLOAT")
 
-    del model
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    # 不 del model、不 empty_cache()：缓存留给下一个文件复用（整批分离只加载一次权重）
     return {
         "ok": True,
         "vocals": vocals,
