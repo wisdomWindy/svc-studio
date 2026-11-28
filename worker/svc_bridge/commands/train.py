@@ -210,6 +210,48 @@ def dataset_readiness(project_path: Path, config_path: Path) -> Optional[Dict[st
     return None
 
 
+def checkpoint_readiness(project_path: Path, model_dir: str) -> Optional[Dict[str, str]]:
+    """续训前置检查：`G_*.pth` 与 `D_*.pth` 必须成对。
+
+    上游 train.py 的续训代码块先加载 G 再加载 D；只要缺一个就抛异常，
+    被 except 吞掉后打印 'load old checkpoint failed...'，然后 **global_step=0、权重随机初始化**。
+    用户看到的是「从第 N 步继续」的按钮，实际从零开始——必须提前拦住。
+    """
+    dir_path = project_path / "logs" / model_dir
+    if not dir_path.is_dir():
+        return None  # 还没训过，正常首次训练
+
+    def steps(pattern: str) -> set:
+        found = set()
+        for p in dir_path.glob(pattern):
+            tail = p.stem.rsplit("_", 1)[-1]
+            if tail.isdigit():
+                found.add(tail)
+        return found
+
+    g_steps, d_steps = steps("G_*.pth"), steps("D_*.pth")
+    if not g_steps and not d_steps:
+        return None
+    only_g = sorted(g_steps - d_steps)
+    only_d = sorted(d_steps - g_steps)
+    if only_g or only_d:
+        bits = []
+        if only_g:
+            bits.append(f"缺 D_{'、D_'.join(only_g)}.pth")
+        if only_d:
+            bits.append(f"缺 G_{'、G_'.join(only_d)}.pth")
+        return {
+            "code": "SVC-5005",
+            "message": "checkpoint 不完整，续训会静默从零开始",
+            "detail": (
+                f"{'；'.join(bits)}（目录 logs/{model_dir}）。"
+                "上游加载失败后会 global_step=0 重新开始，等于丢掉之前的训练；"
+                "请补齐配对的 G/D 文件，或删除该目录里的残留下标后从头训练"
+            ),
+        }
+    return None
+
+
 def run_train(
     project: str,
     upstream: str,
@@ -249,6 +291,8 @@ def run_train(
     # （否则 DataLoader 会抛 num_samples should be a positive integer, 用户看不懂）
     # 只在真正跑上游训练时检查：注入自定义 train_script 的场景（单元测试）不涉及数据集。
     blocked = dataset_readiness(project_path, _cfg) if train_script is None else None
+    if blocked is None and train_script is None:
+        blocked = checkpoint_readiness(project_path, model_dir)
     if blocked is not None:
         send(
             {
@@ -304,6 +348,7 @@ def run_train(
     vram_peak = 0
     last_vram_at = 0.0
     saw_traceback = False
+    resumed_from_zero = False
     # 训练日志落盘：驱动重置/崩溃时事件里可能什么都没有，文件是唯一线索
     log_dir = Path(project) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -318,6 +363,19 @@ def run_train(
             log_file.flush()
             if "Traceback (most recent call last)" in line:
                 saw_traceback = True
+            # 上游续训失败时只打印这行、然后从零开始：必须让用户看见，而不是悄悄重训
+            if "load old checkpoint failed" in line:
+                resumed_from_zero = True
+                send(
+                    {
+                        "kind": "log",
+                        "level": "warn",
+                        "message": (
+                            "续训失败：上游没能加载已有 checkpoint，已从第 0 步重新开始"
+                            "（此前训练没有继承）。请检查 logs 目录里的 G_*.pth 与 D_*.pth 是否成对"
+                        ),
+                    }
+                )
             lowered = line.lower()
             oom_kind = classify_oom(lowered)
             if oom_kind == "cuda":
@@ -462,6 +520,7 @@ def run_train(
         "hostOom": host_oom,
         "diverged": diverged,
         "stoppedForSmoke": stopped_for_smoke,
+        "resumedFromZero": resumed_from_zero,
         "elapsedSeconds": round(time.time() - started, 1),
         "modelDir": model_dir,
         "finishedAt": _now(),
